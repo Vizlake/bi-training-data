@@ -1,0 +1,590 @@
+# Phoenix canonical semantic model for the bundled Contoso fixture.
+#
+# Schema:    packages/semantic-layer/src/schema.ts (CanonicalSemanticModelSchema)
+# Provenance: hand-authored 2026-05-28 against F-016 plumbing; populates the
+#             ont_*/alg_* tables via @phoenix/ontology compileSemanticModel
+#             at bootstrap. The first real consumer of the semantic-layer
+#             plumbing. See project-delivery/features/022-contoso-semantic-demo.
+#
+# Numbers in metric.expr verified against the seeded contoso.* schema —
+# every atomic value reproduces brainstorm §1.2 ground truth.
+# Note: NetPrice and UnitCost are PER-UNIT amounts (not line totals),
+# so revenue/cogs expressions all carry an explicit * Quantity factor.
+
+schemaVersion: 1
+sourceId: contoso
+generatedAt: '2026-05-28T00:00:00.000Z'
+
+source:
+  displayName: Contoso
+  domain: retail
+  description: |
+    Contoso is a fictional global retailer selling consumer electronics, home
+    appliances, and accessories. ~94k orders across 9.6 years (2016-05 →
+    2025-12), five trading currencies (USD/EUR/CAD/GBP/AUD), 8 product
+    categories, ~2.5k SKUs, 74 stores in 9 countries plus an Online store.
+    All transactional amounts are in the order's native currency; the
+    `revenue_usd` and `cogs_usd` metrics convert to USD automatically via the
+    `ExchangeRate` column on each sale.
+  audience: |
+    Sales analysts, regional managers, category buyers, and finance reviewers.
+    Questions tend to be about revenue, units, margin, store and customer
+    breakdowns, and time-over-time trends.
+  conventions:
+    reportingCurrency: USD
+    fiscalYearStart: 01-01
+    timezone: UTC
+    dataAsOf: '2025-12-31'
+  glossary:
+    - term: working day
+      definition: A non-weekend day per the `date.WorkingDay` flag.
+    - term: active customer
+      definition: A customer with one or more orders within the answer's time window.
+    - term: online store
+      definition: |
+        A single virtual store row (`store.StoreCode = 'OL'`) representing
+        all e-commerce sales — not a physical location.
+    - term: native currency
+      definition: |
+        The currency the order was transacted in, recorded on each sale row
+        as `sale.CurrencyCode`. Use `revenue_usd` (not `revenue_native`) when
+        comparing across regions.
+  examples:
+    - prompt: What was revenue last quarter?
+      description: USD-converted revenue for the most recent quarter in the data.
+      tags: [revenue, time]
+    - prompt: Top 10 customers by total spend
+      description: Ranked by their lifetime USD-converted revenue.
+      tags: [customers, ranking]
+    - prompt: Best-selling product categories this year
+      description: Categories ordered by units sold and USD-revenue this year.
+      tags: [products, ranking]
+    - prompt: How does our gross margin compare year-over-year?
+      description: Gross margin % per year, USD-normalised.
+      tags: [margin, time]
+
+ontology:
+  entities:
+    - id: sale
+      name: Sale
+      displayName: Sale
+      description: |
+        A single sold line-item — one product, one customer, one store, on
+        one day, in one currency. The canonical fact table. Use this for
+        any revenue, units, COGS, or margin question. Also known as: line
+        item, transaction. NEVER aggregate `NetPrice` or `UnitCost`
+        directly across currencies — use the `revenue_usd` / `cogs_usd`
+        metrics which include the FX conversion.
+      schemaVersion: 1
+    - id: order
+      name: Order
+      displayName: Order
+      description: |
+        An order header — one row per OrderKey. Each order has one customer,
+        one store, one order date, and may contain multiple sale rows
+        (line items). Use this entity ONLY for order-level counts
+        ("how many orders were placed last week"). For revenue, units,
+        or margin, use `sale`.
+      schemaVersion: 1
+    - id: customer
+      name: Customer
+      displayName: Customer
+      description: |
+        A retail buyer with demographics, geography, and a validity window
+        (StartDT, EndDT) — Contoso applies slowly-changing-dimension type-2
+        tracking. Also known as: client, buyer, shopper. `customer.EndDT`
+        in the future means the row is currently valid.
+      schemaVersion: 1
+    - id: product
+      name: Product
+      displayName: Product
+      description: |
+        A SKU with cost, list price, brand, manufacturer, and a four-level
+        category hierarchy (Category → SubCategory → Brand → Product).
+        ~2,517 active SKUs across 8 categories. Also known as: item, SKU.
+      schemaVersion: 1
+    - id: store
+      name: Store
+      displayName: Store
+      description: |
+        A physical retail location or the single Online virtual store. Also
+        known as: branch, location, outlet. Filter `status != 'Closed'`
+        when ranking by current performance. ~64 of 74 stores have at
+        least one sale in the data window.
+      schemaVersion: 1
+    - id: date
+      name: Date
+      displayName: Date
+      description: |
+        Conformed calendar table covering 2016-01-01 → 2026-12-31 (11 years).
+        Always join through this entity for time intelligence — the columns
+        `Year`, `Quarter`, `YearMonth`, `WorkingDay` are the canonical
+        time grains.
+      schemaVersion: 1
+    - id: currency_rate
+      name: Currency rate
+      displayName: Currency rate
+      description: |
+        Daily FX rates between every transactional currency pair. The
+        `revenue_usd` metric reads `sale.ExchangeRate` directly off the
+        sale row (pre-joined at order time); this entity is exposed for
+        independent FX questions.
+      schemaVersion: 1
+
+  properties:
+    # sale (13 cols — fact table, all annotated)
+    - { id: sale.order_key,     entityId: sale, name: OrderKey,     dtype: int,       nullable: false, role: foreign_key,
+        description: 'Foreign key to the order header. Multiple sale rows share an OrderKey when the order has multiple line items.',
+        lineage: { sourceTable: sales, sourceColumn: OrderKey }, schemaVersion: 1 }
+    - { id: sale.line_number,   entityId: sale, name: LineNumber,   dtype: int,       nullable: false, role: attribute,
+        lineage: { sourceTable: sales, sourceColumn: LineNumber }, schemaVersion: 1 }
+    - { id: sale.order_date,    entityId: sale, name: OrderDate,    dtype: date,      nullable: false, role: foreign_key,
+        description: 'The date the order was placed. Joins to date.Date for time intelligence.',
+        lineage: { sourceTable: sales, sourceColumn: OrderDate }, schemaVersion: 1 }
+    - { id: sale.delivery_date, entityId: sale, name: DeliveryDate, dtype: date,      nullable: true,  role: attribute,
+        lineage: { sourceTable: sales, sourceColumn: DeliveryDate }, schemaVersion: 1 }
+    - { id: sale.customer_key,  entityId: sale, name: CustomerKey,  dtype: int,       nullable: false, role: foreign_key,
+        lineage: { sourceTable: sales, sourceColumn: CustomerKey }, schemaVersion: 1 }
+    - { id: sale.store_key,     entityId: sale, name: StoreKey,     dtype: int,       nullable: false, role: foreign_key,
+        lineage: { sourceTable: sales, sourceColumn: StoreKey }, schemaVersion: 1 }
+    - { id: sale.product_key,   entityId: sale, name: ProductKey,   dtype: int,       nullable: false, role: foreign_key,
+        lineage: { sourceTable: sales, sourceColumn: ProductKey }, schemaVersion: 1 }
+    - { id: sale.quantity,      entityId: sale, name: Quantity,     dtype: int,       nullable: false, role: attribute, unit: units,
+        description: 'Number of items sold in this line. Use the `units_sold` metric for aggregations.',
+        lineage: { sourceTable: sales, sourceColumn: Quantity }, schemaVersion: 1 }
+    - { id: sale.unit_price,    entityId: sale, name: UnitPrice,    dtype: decimal,   nullable: false, role: attribute, unit: '{native currency}',
+        description: 'Gross per-unit list price in the sale row''s CurrencyCode. NetPrice (after discount) is the column to aggregate, not this one.',
+        lineage: { sourceTable: sales, sourceColumn: UnitPrice }, schemaVersion: 1 }
+    - { id: sale.net_price,     entityId: sale, name: NetPrice,     dtype: decimal,   nullable: false, role: attribute, unit: '{native currency}',
+        description: 'Per-unit price AFTER discount in the row''s CurrencyCode. To compute line revenue: NetPrice * Quantity. NEVER sum directly across rows — currencies differ AND the value is per-unit, not per-line. Use the `revenue_usd` metric.',
+        lineage: { sourceTable: sales, sourceColumn: NetPrice }, schemaVersion: 1 }
+    - { id: sale.unit_cost,     entityId: sale, name: UnitCost,     dtype: decimal,   nullable: false, role: attribute, unit: '{native currency}',
+        description: 'Per-unit cost in the row''s CurrencyCode. Like NetPrice, do NOT sum directly. Use the `cogs_usd` metric (= SUM(UnitCost * Quantity * ExchangeRate)).',
+        lineage: { sourceTable: sales, sourceColumn: UnitCost }, schemaVersion: 1 }
+    - { id: sale.currency_code, entityId: sale, name: CurrencyCode, dtype: string,    nullable: false, role: attribute,
+        description: 'ISO-4217 currency the order was transacted in. One of USD / EUR / CAD / GBP / AUD.',
+        lineage: { sourceTable: sales, sourceColumn: CurrencyCode }, schemaVersion: 1 }
+    - { id: sale.exchange_rate, entityId: sale, name: ExchangeRate, dtype: float,     nullable: false, role: attribute, unit: 'native per USD',
+        description: 'Pre-joined FX rate: native-currency units per USD on the order date. Multiply native amounts by this to convert to USD.',
+        lineage: { sourceTable: sales, sourceColumn: ExchangeRate }, schemaVersion: 1 }
+
+    # order (6 cols)
+    - { id: order.order_key,     entityId: order, name: OrderKey,     dtype: int,    nullable: false, role: primary_key,
+        lineage: { sourceTable: orders, sourceColumn: OrderKey }, schemaVersion: 1 }
+    - { id: order.customer_key,  entityId: order, name: CustomerKey,  dtype: int,    nullable: false, role: foreign_key,
+        lineage: { sourceTable: orders, sourceColumn: CustomerKey }, schemaVersion: 1 }
+    - { id: order.store_key,     entityId: order, name: StoreKey,     dtype: int,    nullable: false, role: foreign_key,
+        lineage: { sourceTable: orders, sourceColumn: StoreKey }, schemaVersion: 1 }
+    - { id: order.order_date,    entityId: order, name: OrderDate,    dtype: date,   nullable: false, role: foreign_key,
+        lineage: { sourceTable: orders, sourceColumn: OrderDate }, schemaVersion: 1 }
+    - { id: order.delivery_date, entityId: order, name: DeliveryDate, dtype: date,   nullable: true,  role: attribute,
+        lineage: { sourceTable: orders, sourceColumn: DeliveryDate }, schemaVersion: 1 }
+    - { id: order.currency_code, entityId: order, name: CurrencyCode, dtype: string, nullable: false, role: attribute,
+        lineage: { sourceTable: orders, sourceColumn: CurrencyCode }, schemaVersion: 1 }
+
+    # customer (12 cols — drop low-signal Vehicle/Company/Birthday/Title/MiddleInitial/GivenName/Surname/StreetAddress/ZipCode/Lat/Long)
+    - { id: customer.customer_key, entityId: customer, name: CustomerKey, dtype: int, nullable: false, role: primary_key,
+        lineage: { sourceTable: customer, sourceColumn: CustomerKey }, schemaVersion: 1 }
+    - { id: customer.geo_area_key, entityId: customer, name: GeoAreaKey, dtype: int, nullable: true, role: attribute,
+        lineage: { sourceTable: customer, sourceColumn: GeoAreaKey }, schemaVersion: 1 }
+    - { id: customer.start_dt,     entityId: customer, name: StartDT,    dtype: date, nullable: false, role: attribute,
+        description: 'Start of this customer-row''s SCD-type-2 validity window. The row is valid from this date.',
+        lineage: { sourceTable: customer, sourceColumn: StartDT }, schemaVersion: 1 }
+    - { id: customer.end_dt,       entityId: customer, name: EndDT,      dtype: date, nullable: false, role: attribute,
+        description: 'End of this customer-row''s SCD-type-2 validity window. A future EndDT means the row is currently valid.',
+        lineage: { sourceTable: customer, sourceColumn: EndDT }, schemaVersion: 1 }
+    - { id: customer.continent,    entityId: customer, name: Continent,   dtype: string, nullable: false, role: attribute,
+        description: 'One of three: North America, Europe, Asia. Highest level of the customer geography hierarchy.',
+        lineage: { sourceTable: customer, sourceColumn: Continent }, schemaVersion: 1 }
+    - { id: customer.country,      entityId: customer, name: Country,     dtype: string, nullable: false, role: attribute,
+        description: 'Two-letter country code (ISO 3166-1 alpha-2).',
+        lineage: { sourceTable: customer, sourceColumn: Country }, schemaVersion: 1 }
+    - { id: customer.country_full, entityId: customer, name: CountryFull, dtype: string, nullable: false, role: attribute,
+        description: 'Full country name. Prefer this over the two-letter code for display.',
+        lineage: { sourceTable: customer, sourceColumn: CountryFull }, schemaVersion: 1 }
+    - { id: customer.state,        entityId: customer, name: State,       dtype: string, nullable: true,  role: attribute,
+        lineage: { sourceTable: customer, sourceColumn: State }, schemaVersion: 1 }
+    - { id: customer.city,         entityId: customer, name: City,        dtype: string, nullable: true,  role: attribute,
+        lineage: { sourceTable: customer, sourceColumn: City }, schemaVersion: 1 }
+    - { id: customer.age,          entityId: customer, name: Age,         dtype: int,    nullable: true,  role: attribute, unit: years,
+        lineage: { sourceTable: customer, sourceColumn: Age }, schemaVersion: 1 }
+    - { id: customer.occupation,   entityId: customer, name: Occupation,  dtype: string, nullable: true,  role: attribute,
+        lineage: { sourceTable: customer, sourceColumn: Occupation }, schemaVersion: 1 }
+    - { id: customer.gender,       entityId: customer, name: Gender,      dtype: string, nullable: true,  role: attribute,
+        lineage: { sourceTable: customer, sourceColumn: Gender }, schemaVersion: 1 }
+
+    # product (14 cols)
+    - { id: product.product_key,   entityId: product, name: ProductKey,   dtype: int,     nullable: false, role: primary_key,
+        lineage: { sourceTable: product, sourceColumn: ProductKey }, schemaVersion: 1 }
+    - { id: product.product_code,  entityId: product, name: ProductCode,  dtype: string,  nullable: false, role: attribute,
+        lineage: { sourceTable: product, sourceColumn: ProductCode }, schemaVersion: 1 }
+    - { id: product.product_name,  entityId: product, name: ProductName,  dtype: string,  nullable: false, role: attribute,
+        description: 'Human-readable product name. Most specific level of the product hierarchy.',
+        lineage: { sourceTable: product, sourceColumn: ProductName }, schemaVersion: 1 }
+    - { id: product.brand,         entityId: product, name: Brand,        dtype: string,  nullable: false, role: attribute,
+        description: 'Product brand. 11 brands total; Contoso''s own-brand SKUs account for ~28% of the catalogue.',
+        lineage: { sourceTable: product, sourceColumn: Brand }, schemaVersion: 1 }
+    - { id: product.manufacturer,  entityId: product, name: Manufacturer, dtype: string,  nullable: false, role: attribute,
+        lineage: { sourceTable: product, sourceColumn: Manufacturer }, schemaVersion: 1 }
+    - { id: product.color,         entityId: product, name: Color,        dtype: string,  nullable: true,  role: attribute,
+        lineage: { sourceTable: product, sourceColumn: Color }, schemaVersion: 1 }
+    - { id: product.weight,        entityId: product, name: Weight,       dtype: float,   nullable: true,  role: attribute,
+        lineage: { sourceTable: product, sourceColumn: Weight }, schemaVersion: 1 }
+    - { id: product.weight_unit,   entityId: product, name: WeightUnit,   dtype: string,  nullable: true,  role: attribute,
+        lineage: { sourceTable: product, sourceColumn: WeightUnit }, schemaVersion: 1 }
+    - { id: product.cost,          entityId: product, name: Cost,         dtype: decimal, nullable: false, role: attribute, unit: USD,
+        description: 'List unit cost in USD (catalogue value; the sale row''s `unit_cost` is the same figure converted to the sale''s native currency).',
+        lineage: { sourceTable: product, sourceColumn: Cost }, schemaVersion: 1 }
+    - { id: product.price,         entityId: product, name: Price,        dtype: decimal, nullable: false, role: attribute, unit: USD,
+        description: 'List unit price in USD.',
+        lineage: { sourceTable: product, sourceColumn: Price }, schemaVersion: 1 }
+    - { id: product.category_key,  entityId: product, name: CategoryKey,  dtype: int,     nullable: false, role: attribute,
+        lineage: { sourceTable: product, sourceColumn: CategoryKey }, schemaVersion: 1 }
+    - { id: product.category_name, entityId: product, name: CategoryName, dtype: string,  nullable: false, role: attribute,
+        description: 'Top-level product category. Also known as: department. 8 categories total (Audio, Cameras, Computers, ...).',
+        lineage: { sourceTable: product, sourceColumn: CategoryName }, schemaVersion: 1 }
+    - { id: product.subcategory_key,  entityId: product, name: SubCategoryKey,  dtype: int,    nullable: false, role: attribute,
+        lineage: { sourceTable: product, sourceColumn: SubCategoryKey }, schemaVersion: 1 }
+    - { id: product.subcategory_name, entityId: product, name: SubCategoryName, dtype: string, nullable: false, role: attribute,
+        lineage: { sourceTable: product, sourceColumn: SubCategoryName }, schemaVersion: 1 }
+
+    # store (10 cols)
+    - { id: store.store_key,      entityId: store, name: StoreKey,      dtype: int,     nullable: false, role: primary_key,
+        lineage: { sourceTable: store, sourceColumn: StoreKey }, schemaVersion: 1 }
+    - { id: store.store_code,     entityId: store, name: StoreCode,     dtype: string,  nullable: false, role: attribute,
+        description: 'Short store code. `OL` is the single Online virtual store; everything else is a physical location.',
+        lineage: { sourceTable: store, sourceColumn: StoreCode }, schemaVersion: 1 }
+    - { id: store.country_code,   entityId: store, name: CountryCode,   dtype: string,  nullable: false, role: attribute,
+        lineage: { sourceTable: store, sourceColumn: CountryCode }, schemaVersion: 1 }
+    - { id: store.country_name,   entityId: store, name: CountryName,   dtype: string,  nullable: false, role: attribute,
+        description: 'Country the store sits in. 9 distinct values including the special "Online" pseudo-country.',
+        lineage: { sourceTable: store, sourceColumn: CountryName }, schemaVersion: 1 }
+    - { id: store.state,          entityId: store, name: State,         dtype: string,  nullable: true,  role: attribute,
+        lineage: { sourceTable: store, sourceColumn: State }, schemaVersion: 1 }
+    - { id: store.open_date,      entityId: store, name: OpenDate,      dtype: date,    nullable: false, role: attribute,
+        lineage: { sourceTable: store, sourceColumn: OpenDate }, schemaVersion: 1 }
+    - { id: store.close_date,     entityId: store, name: CloseDate,     dtype: date,    nullable: true,  role: attribute,
+        description: 'NULL means the store is still open. A non-NULL CloseDate means the store closed on that date.',
+        lineage: { sourceTable: store, sourceColumn: CloseDate }, schemaVersion: 1 }
+    - { id: store.status,         entityId: store, name: Status,        dtype: string,  nullable: false, role: attribute,
+        description: 'Operational status. Filter `status != ''Closed''` for "current stores only" reports.',
+        lineage: { sourceTable: store, sourceColumn: Status }, schemaVersion: 1 }
+    - { id: store.square_meters,  entityId: store, name: SquareMeters,  dtype: int,     nullable: true,  role: attribute, unit: 'square metres',
+        lineage: { sourceTable: store, sourceColumn: SquareMeters }, schemaVersion: 1 }
+    - { id: store.description,    entityId: store, name: Description,   dtype: string,  nullable: true,  role: attribute,
+        lineage: { sourceTable: store, sourceColumn: Description }, schemaVersion: 1 }
+
+    # date (10 cols — calendar)
+    - { id: date.date,            entityId: date, name: Date,         dtype: date,   nullable: false, role: primary_key,
+        lineage: { sourceTable: date, sourceColumn: Date }, schemaVersion: 1 }
+    - { id: date.date_key,        entityId: date, name: DateKey,      dtype: int,    nullable: false, role: attribute,
+        lineage: { sourceTable: date, sourceColumn: DateKey }, schemaVersion: 1 }
+    - { id: date.year,            entityId: date, name: Year,         dtype: int,    nullable: false, role: attribute, unit: year,
+        description: 'Calendar year (2016–2026 in the data).',
+        lineage: { sourceTable: date, sourceColumn: Year }, schemaVersion: 1 }
+    - { id: date.quarter,         entityId: date, name: Quarter,      dtype: string, nullable: false, role: attribute,
+        lineage: { sourceTable: date, sourceColumn: Quarter }, schemaVersion: 1 }
+    - { id: date.year_quarter,    entityId: date, name: YearQuarter,  dtype: string, nullable: false, role: attribute,
+        description: 'Year-and-quarter as a single label, e.g. "2024 Q3". Use for time-series sorted by quarter.',
+        lineage: { sourceTable: date, sourceColumn: YearQuarter }, schemaVersion: 1 }
+    - { id: date.year_month,      entityId: date, name: YearMonth,    dtype: string, nullable: false, role: attribute,
+        description: 'Year-and-month label, e.g. "2024-Jul". Canonical monthly grain.',
+        lineage: { sourceTable: date, sourceColumn: YearMonth }, schemaVersion: 1 }
+    - { id: date.month,           entityId: date, name: Month,        dtype: string, nullable: false, role: attribute,
+        lineage: { sourceTable: date, sourceColumn: Month }, schemaVersion: 1 }
+    - { id: date.month_number,    entityId: date, name: MonthNumber,  dtype: int,    nullable: false, role: attribute,
+        lineage: { sourceTable: date, sourceColumn: MonthNumber }, schemaVersion: 1 }
+    - { id: date.day_of_week,     entityId: date, name: DayofWeek,    dtype: string, nullable: false, role: attribute,
+        lineage: { sourceTable: date, sourceColumn: DayofWeek }, schemaVersion: 1 }
+    - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: string, nullable: false, role: attribute,
+        description: 'Y/N flag for non-weekend days. About 69% of rows are working days.',
+        lineage: { sourceTable: date, sourceColumn: WorkingDay }, schemaVersion: 1 }
+
+    # currency_rate (4 cols)
+    - { id: currency_rate.date,           entityId: currency_rate, name: Date,         dtype: date,  nullable: false, role: primary_key,
+        lineage: { sourceTable: currencyexchange, sourceColumn: Date }, schemaVersion: 1 }
+    - { id: currency_rate.from_currency,  entityId: currency_rate, name: FromCurrency, dtype: string, nullable: false, role: primary_key,
+        lineage: { sourceTable: currencyexchange, sourceColumn: FromCurrency }, schemaVersion: 1 }
+    - { id: currency_rate.to_currency,    entityId: currency_rate, name: ToCurrency,   dtype: string, nullable: false, role: primary_key,
+        lineage: { sourceTable: currencyexchange, sourceColumn: ToCurrency }, schemaVersion: 1 }
+    - { id: currency_rate.exchange,       entityId: currency_rate, name: Exchange,     dtype: float,  nullable: false, role: attribute, unit: 'to per from',
+        description: 'Multiply a FromCurrency amount by this to convert to ToCurrency on the given Date. Self-pairs (USD→USD) are 1.0.',
+        lineage: { sourceTable: currencyexchange, sourceColumn: Exchange }, schemaVersion: 1 }
+
+  relationships:
+    - { id: sale_to_customer,    name: 'Sale → Customer', inverseName: 'Customer ← Sale',  fromEntityId: sale,     toEntityId: customer,      cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: sale_to_product,     name: 'Sale → Product',  inverseName: 'Product ← Sale',   fromEntityId: sale,     toEntityId: product,       cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: sale_to_store,       name: 'Sale → Store',    inverseName: 'Store ← Sale',     fromEntityId: sale,     toEntityId: store,         cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: sale_to_date,        name: 'Sale → Date',     inverseName: 'Date ← Sale',      fromEntityId: sale,     toEntityId: date,          cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: sale_to_order,       name: 'Sale → Order',    inverseName: 'Order ← Sale',     fromEntityId: sale,     toEntityId: order,         cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: sale_to_currency_rate, name: 'Sale → Currency rate', inverseName: 'Currency rate ← Sale', fromEntityId: sale, toEntityId: currency_rate, cardinality: 'N:1', category: derivation, schemaVersion: 1 }
+    - { id: order_to_customer,   name: 'Order → Customer', inverseName: 'Customer ← Order', fromEntityId: order,    toEntityId: customer,      cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: order_to_store,      name: 'Order → Store',    inverseName: 'Store ← Order',   fromEntityId: order,    toEntityId: store,         cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: order_to_date,       name: 'Order → Date',     inverseName: 'Date ← Order',    fromEntityId: order,    toEntityId: date,          cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: product_category_hierarchy, name: 'Product category hierarchy', fromEntityId: product, toEntityId: product, cardinality: '1:1', category: classification, schemaVersion: 1 }
+
+  bindings:
+    - id: sale_binding
+      entityId: sale
+      sourceId: contoso
+      schema: contoso
+      table: sales
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        order_key: OrderKey
+        line_number: LineNumber
+        order_date: OrderDate
+        delivery_date: DeliveryDate
+        customer_key: CustomerKey
+        store_key: StoreKey
+        product_key: ProductKey
+        quantity: Quantity
+        unit_price: UnitPrice
+        net_price: NetPrice
+        unit_cost: UnitCost
+        currency_code: CurrencyCode
+        exchange_rate: ExchangeRate
+    - id: order_binding
+      entityId: order
+      sourceId: contoso
+      schema: contoso
+      table: orders
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        order_key: OrderKey
+        customer_key: CustomerKey
+        store_key: StoreKey
+        order_date: OrderDate
+        delivery_date: DeliveryDate
+        currency_code: CurrencyCode
+    - id: customer_binding
+      entityId: customer
+      sourceId: contoso
+      schema: contoso
+      table: customer
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        customer_key: CustomerKey
+        geo_area_key: GeoAreaKey
+        start_dt: StartDT
+        end_dt: EndDT
+        continent: Continent
+        country: Country
+        country_full: CountryFull
+        state: State
+        city: City
+        age: Age
+        occupation: Occupation
+        gender: Gender
+    - id: product_binding
+      entityId: product
+      sourceId: contoso
+      schema: contoso
+      table: product
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        product_key: ProductKey
+        product_code: ProductCode
+        product_name: ProductName
+        brand: Brand
+        manufacturer: Manufacturer
+        color: Color
+        weight: Weight
+        weight_unit: WeightUnit
+        cost: Cost
+        price: Price
+        category_key: CategoryKey
+        category_name: CategoryName
+        subcategory_key: SubCategoryKey
+        subcategory_name: SubCategoryName
+    - id: store_binding
+      entityId: store
+      sourceId: contoso
+      schema: contoso
+      table: store
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        store_key: StoreKey
+        store_code: StoreCode
+        country_code: CountryCode
+        country_name: CountryName
+        state: State
+        open_date: OpenDate
+        close_date: CloseDate
+        status: Status
+        square_meters: SquareMeters
+        description: Description
+    - id: date_binding
+      entityId: date
+      sourceId: contoso
+      schema: contoso
+      table: date
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        date: Date
+        date_key: DateKey
+        year: Year
+        quarter: Quarter
+        year_quarter: YearQuarter
+        year_month: YearMonth
+        month: Month
+        month_number: MonthNumber
+        day_of_week: DayofWeek
+        working_day: WorkingDay
+    - id: currency_rate_binding
+      entityId: currency_rate
+      sourceId: contoso
+      schema: contoso
+      table: currencyexchange
+      dialect: duckdb-sql
+      status: bound
+      schemaVersion: 1
+      columnMap:
+        date: Date
+        from_currency: FromCurrency
+        to_currency: ToCurrency
+        exchange: Exchange
+
+algebra:
+  dimensions:
+    - { id: date.year,            name: Year,             entityId: date,     propertyId: date.year,            dtype: int,      hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.quarter,         name: Quarter,          entityId: date,     propertyId: date.year_quarter,    dtype: string,   hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: customer.continent,   name: Continent,        entityId: customer, propertyId: customer.continent,   dtype: string,   hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
+    - { id: customer.country_full, name: Country,         entityId: customer, propertyId: customer.country_full, dtype: string,  hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
+    - { id: product.category_name, name: 'Product category', entityId: product, propertyId: product.category_name, dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    - { id: product.brand,        name: Brand,            entityId: product,  propertyId: product.brand,        dtype: string,   hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    - { id: store.country_name,   name: 'Store country',  entityId: store,    propertyId: store.country_name,   dtype: string,   schemaVersion: 1 }
+
+  metrics:
+    # ── 6 atomic ──
+    - id: revenue_usd
+      name: revenue_usd
+      displayName: Revenue (USD)
+      description: |
+        Total revenue, USD-converted from each sale's native currency at the
+        order-date FX rate. Computed as SUM(NetPrice * Quantity * ExchangeRate)
+        because NetPrice is the per-unit price after discount, not the line
+        total. Verified ground truth: $223,597,711 over the full data window.
+      entityId: sale
+      language: duckdb-sql
+      expr: SUM(sale.net_price * sale.quantity * sale.exchange_rate)
+      schemaVersion: 1
+    - id: revenue_native
+      name: revenue_native
+      displayName: Revenue (native currency)
+      description: |
+        Same line-revenue arithmetic as `revenue_usd` but WITHOUT the FX
+        conversion — leaves each row in its own native currency. Only useful
+        when grouped by `sale.currency_code`; never aggregate across
+        currencies without applying ExchangeRate first.
+      entityId: sale
+      language: duckdb-sql
+      expr: SUM(sale.net_price * sale.quantity)
+      schemaVersion: 1
+    - id: units_sold
+      name: units_sold
+      displayName: Units sold
+      description: |
+        Total number of items sold (sum of line quantities). Verified ground
+        truth: 703,621 units over the full data window.
+      entityId: sale
+      language: duckdb-sql
+      agg: sum
+      sourceColumn: sale.quantity
+      expr: SUM(sale.quantity)
+      schemaVersion: 1
+    - id: orders_count
+      name: orders_count
+      displayName: Orders
+      description: |
+        Distinct order count. One order may have many sale rows; this metric
+        deduplicates by OrderKey. Verified ground truth: 93,470 orders over
+        the full data window.
+      entityId: sale
+      language: duckdb-sql
+      agg: count_distinct
+      sourceColumn: sale.order_key
+      expr: COUNT(DISTINCT sale.order_key)
+      schemaVersion: 1
+    - id: customers_count
+      name: customers_count
+      displayName: Active customers
+      description: |
+        Distinct customer count among those who placed at least one order in
+        the answer window. Verified ground truth: 52,189 across the full
+        data window (a 49.7% subset of the 104,990 customer rows).
+      entityId: sale
+      language: duckdb-sql
+      agg: count_distinct
+      sourceColumn: sale.customer_key
+      expr: COUNT(DISTINCT sale.customer_key)
+      schemaVersion: 1
+    - id: cogs_usd
+      name: cogs_usd
+      displayName: COGS (USD)
+      description: |
+        Total cost of goods sold, USD-converted. Computed as SUM(UnitCost *
+        Quantity * ExchangeRate) — same per-unit-times-quantity-times-FX
+        pattern as `revenue_usd`. Verified ground truth: $98,606,503.
+      entityId: sale
+      language: duckdb-sql
+      expr: SUM(sale.unit_cost * sale.quantity * sale.exchange_rate)
+      schemaVersion: 1
+
+    # ── 4 derived ──
+    - id: gross_margin_usd
+      name: gross_margin_usd
+      displayName: Gross margin (USD)
+      description: |
+        Revenue minus COGS, in USD. Both inputs are USD-converted at the
+        sale row's FX rate. Verified ground truth: $124,991,207.
+      language: duckdb-sql
+      derivedFrom: [revenue_usd, cogs_usd]
+      expr: revenue_usd - cogs_usd
+      schemaVersion: 1
+    - id: gross_margin_pct
+      name: gross_margin_pct
+      displayName: Gross margin %
+      description: |
+        Gross margin as a fraction of revenue. Uses NULLIF on the denominator
+        to avoid divide-by-zero on empty filters. Verified ground truth:
+        55.9% across the full data window.
+      language: duckdb-sql
+      derivedFrom: [gross_margin_usd, revenue_usd]
+      expr: gross_margin_usd / NULLIF(revenue_usd, 0)
+      schemaVersion: 1
+    - id: avg_order_value_usd
+      name: avg_order_value_usd
+      displayName: AOV (USD)
+      description: |
+        Average order value in USD: revenue divided by distinct order count.
+        Both inputs are pre-aggregated; NULLIF guards against zero-order
+        filter slices. Verified ground truth: $2,392.19.
+      language: duckdb-sql
+      derivedFrom: [revenue_usd, orders_count]
+      expr: revenue_usd / NULLIF(orders_count, 0)
+      schemaVersion: 1
+    - id: units_per_order
+      name: units_per_order
+      displayName: Units / order
+      description: |
+        Average line-item count per order: total units sold divided by
+        distinct orders. Verified ground truth: 7.53 across the full data
+        window.
+      language: duckdb-sql
+      derivedFrom: [units_sold, orders_count]
+      expr: units_sold / NULLIF(orders_count, 0)
+      schemaVersion: 1
