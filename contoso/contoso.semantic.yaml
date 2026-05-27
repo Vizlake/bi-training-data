@@ -467,15 +467,45 @@ ontology:
         exchange: Exchange
 
 algebra:
+  # Curated dimension catalog drives query_metric's GROUP BY surface.
+  # Inclusion principle: any aggregation an executive would ask for in
+  # natural language ("revenue by region", "top products by margin",
+  # "weekday vs weekend") should be expressible without query_sql. Per-
+  # record drill-down (per-customer lookups, per-SKU inventory checks)
+  # stays in query_sql — high cardinality + weak BI signal + display-
+  # heavy. The LLM tool router learns that distinction from the digest.
   dimensions:
-    - { id: date.year,            name: Year,             entityId: date,     propertyId: date.year,            dtype: int,      hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.quarter,         name: Quarter,          entityId: date,     propertyId: date.year_quarter,    dtype: string,   hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: customer.continent,   name: Continent,        entityId: customer, propertyId: customer.continent,   dtype: string,   hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
-    - { id: customer.country_full, name: Country,         entityId: customer, propertyId: customer.country_full, dtype: string,  hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
-    - { id: product.category_name, name: 'Product category', entityId: product, propertyId: product.category_name, dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
-    - { id: product.brand,        name: Brand,            entityId: product,  propertyId: product.brand,        dtype: string,   hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    # ── time (3 grains + month + weekday) ──────────────────────────────
+    # chartKind:temporal — time-axis dimensions even though the stored
+    # column dtype is int/string. Without the override the chart
+    # heuristic mis-classifies them and lands on scatter.
+    - { id: date.year,            name: Year,             entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.quarter,         name: Quarter,          entityId: date,     propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
+    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
+    - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: string,   schemaVersion: 1 }
+    # ── customer geo + demographic ─────────────────────────────────────
+    # Per-customer NOT exposed (intentional). "Top customers" / "customer
+    # X's history" are display-tier queries the LLM routes to query_sql.
+    - { id: customer.continent,    name: Continent,        entityId: customer, propertyId: customer.continent,    dtype: string,   hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
+    - { id: customer.country_full, name: Country,          entityId: customer, propertyId: customer.country_full, dtype: string,   hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
+    - { id: customer.state,        name: 'Customer state', entityId: customer, propertyId: customer.state,        dtype: string,   hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
+    - { id: customer.city,         name: 'Customer city',  entityId: customer, propertyId: customer.city,         dtype: string,   hierarchy: [customer.continent, customer.country_full, customer.state, customer.city], schemaVersion: 1 }
+    - { id: customer.occupation,   name: Occupation,       entityId: customer, propertyId: customer.occupation,   dtype: string,   schemaVersion: 1 }
+    - { id: customer.gender,       name: Gender,           entityId: customer, propertyId: customer.gender,       dtype: string,   schemaVersion: 1 }
+    # ── product hierarchy (category → subcategory → brand → product) ──
+    - { id: product.category_name,    name: 'Product category',    entityId: product, propertyId: product.category_name,    dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    - { id: product.subcategory_name, name: 'Product subcategory', entityId: product, propertyId: product.subcategory_name, dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    - { id: product.brand,            name: Brand,                 entityId: product, propertyId: product.brand,            dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    - { id: product.product_name,     name: Product,               entityId: product, propertyId: product.product_name,     dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    - { id: product.color,            name: Color,                 entityId: product, propertyId: product.color,            dtype: string, schemaVersion: 1 }
+    - { id: product.manufacturer,     name: Manufacturer,          entityId: product, propertyId: product.manufacturer,     dtype: string, schemaVersion: 1 }
+    # ── store ──────────────────────────────────────────────────────────
     - { id: store.country_name,   name: 'Store country',  entityId: store,    propertyId: store.country_name,   dtype: string,   schemaVersion: 1 }
+    - { id: store.state,          name: 'Store state',    entityId: store,    propertyId: store.state,          dtype: string,   schemaVersion: 1 }
+    - { id: store.store_code,     name: 'Store code',     entityId: store,    propertyId: store.store_code,     dtype: string,   schemaVersion: 1 }
+    - { id: store.status,         name: 'Store status',   entityId: store,    propertyId: store.status,         dtype: string,   schemaVersion: 1 }
 
   metrics:
     # ── 6 atomic ──
@@ -490,6 +520,7 @@ algebra:
       entityId: sale
       language: duckdb-sql
       expr: SUM(sale.net_price * sale.quantity * sale.exchange_rate)
+      defaultChart: line
       schemaVersion: 1
     - id: revenue_native
       name: revenue_native
@@ -502,6 +533,7 @@ algebra:
       entityId: sale
       language: duckdb-sql
       expr: SUM(sale.net_price * sale.quantity)
+      defaultChart: bar
       schemaVersion: 1
     - id: units_sold
       name: units_sold
@@ -514,6 +546,7 @@ algebra:
       agg: sum
       sourceColumn: sale.quantity
       expr: SUM(sale.quantity)
+      defaultChart: bar
       schemaVersion: 1
     - id: orders_count
       name: orders_count
@@ -527,6 +560,7 @@ algebra:
       agg: count_distinct
       sourceColumn: sale.order_key
       expr: COUNT(DISTINCT sale.order_key)
+      defaultChart: bar
       schemaVersion: 1
     - id: customers_count
       name: customers_count
@@ -540,6 +574,7 @@ algebra:
       agg: count_distinct
       sourceColumn: sale.customer_key
       expr: COUNT(DISTINCT sale.customer_key)
+      defaultChart: kpi
       schemaVersion: 1
     - id: cogs_usd
       name: cogs_usd
@@ -551,6 +586,7 @@ algebra:
       entityId: sale
       language: duckdb-sql
       expr: SUM(sale.unit_cost * sale.quantity * sale.exchange_rate)
+      defaultChart: line
       schemaVersion: 1
 
     # ── 4 derived ──
@@ -563,6 +599,7 @@ algebra:
       language: duckdb-sql
       derivedFrom: [revenue_usd, cogs_usd]
       expr: revenue_usd - cogs_usd
+      defaultChart: line
       schemaVersion: 1
     - id: gross_margin_pct
       name: gross_margin_pct
@@ -574,6 +611,7 @@ algebra:
       language: duckdb-sql
       derivedFrom: [gross_margin_usd, revenue_usd]
       expr: gross_margin_usd / NULLIF(revenue_usd, 0)
+      defaultChart: line
       schemaVersion: 1
     - id: avg_order_value_usd
       name: avg_order_value_usd
@@ -585,6 +623,7 @@ algebra:
       language: duckdb-sql
       derivedFrom: [revenue_usd, orders_count]
       expr: revenue_usd / NULLIF(orders_count, 0)
+      defaultChart: kpi
       schemaVersion: 1
     - id: units_per_order
       name: units_per_order
@@ -596,4 +635,5 @@ algebra:
       language: duckdb-sql
       derivedFrom: [units_sold, orders_count]
       expr: units_sold / NULLIF(orders_count, 0)
+      defaultChart: kpi
       schemaVersion: 1
