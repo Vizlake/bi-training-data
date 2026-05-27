@@ -312,15 +312,24 @@ ontology:
         lineage: { sourceTable: currencyexchange, sourceColumn: Exchange }, schemaVersion: 1 }
 
   relationships:
-    - { id: sale_to_customer,    name: 'Sale → Customer', inverseName: 'Customer ← Sale',  fromEntityId: sale,     toEntityId: customer,      cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: sale_to_product,     name: 'Sale → Product',  inverseName: 'Product ← Sale',   fromEntityId: sale,     toEntityId: product,       cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: sale_to_store,       name: 'Sale → Store',    inverseName: 'Store ← Sale',     fromEntityId: sale,     toEntityId: store,         cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: sale_to_date,        name: 'Sale → Date',     inverseName: 'Date ← Sale',      fromEntityId: sale,     toEntityId: date,          cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: sale_to_order,       name: 'Sale → Order',    inverseName: 'Order ← Sale',     fromEntityId: sale,     toEntityId: order,         cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: sale_to_currency_rate, name: 'Sale → Currency rate', inverseName: 'Currency rate ← Sale', fromEntityId: sale, toEntityId: currency_rate, cardinality: 'N:1', category: derivation, schemaVersion: 1 }
-    - { id: order_to_customer,   name: 'Order → Customer', inverseName: 'Customer ← Order', fromEntityId: order,    toEntityId: customer,      cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: order_to_store,      name: 'Order → Store',    inverseName: 'Store ← Order',   fromEntityId: order,    toEntityId: store,         cardinality: 'N:1', category: structural, schemaVersion: 1 }
-    - { id: order_to_date,       name: 'Order → Date',     inverseName: 'Date ← Order',    fromEntityId: order,    toEntityId: date,          cardinality: 'N:1', category: structural, schemaVersion: 1 }
+    - { id: sale_to_customer,    name: 'Sale → Customer', inverseName: 'Customer ← Sale',  fromEntityId: sale,     toEntityId: customer,      cardinality: 'N:1', category: structural,
+        joinFromProperty: sale.customer_key, joinToProperty: customer.customer_key, schemaVersion: 1 }
+    - { id: sale_to_product,     name: 'Sale → Product',  inverseName: 'Product ← Sale',   fromEntityId: sale,     toEntityId: product,       cardinality: 'N:1', category: structural,
+        joinFromProperty: sale.product_key,  joinToProperty: product.product_key,   schemaVersion: 1 }
+    - { id: sale_to_store,       name: 'Sale → Store',    inverseName: 'Store ← Sale',     fromEntityId: sale,     toEntityId: store,         cardinality: 'N:1', category: structural,
+        joinFromProperty: sale.store_key,    joinToProperty: store.store_key,       schemaVersion: 1 }
+    - { id: sale_to_date,        name: 'Sale → Date',     inverseName: 'Date ← Sale',      fromEntityId: sale,     toEntityId: date,          cardinality: 'N:1', category: structural,
+        joinFromProperty: sale.order_date,   joinToProperty: date.date,             schemaVersion: 1 }
+    - { id: sale_to_order,       name: 'Sale → Order',    inverseName: 'Order ← Sale',     fromEntityId: sale,     toEntityId: order,         cardinality: 'N:1', category: structural,
+        joinFromProperty: sale.order_key,    joinToProperty: order.order_key,       schemaVersion: 1 }
+    - { id: sale_to_currency_rate, name: 'Sale → Currency rate', inverseName: 'Currency rate ← Sale', fromEntityId: sale, toEntityId: currency_rate, cardinality: 'N:1', category: derivation,
+        joinFromProperty: sale.currency_code, joinToProperty: currency_rate.from_currency, schemaVersion: 1 }
+    - { id: order_to_customer,   name: 'Order → Customer', inverseName: 'Customer ← Order', fromEntityId: order,    toEntityId: customer,      cardinality: 'N:1', category: structural,
+        joinFromProperty: order.customer_key, joinToProperty: customer.customer_key, schemaVersion: 1 }
+    - { id: order_to_store,      name: 'Order → Store',    inverseName: 'Store ← Order',   fromEntityId: order,    toEntityId: store,         cardinality: 'N:1', category: structural,
+        joinFromProperty: order.store_key,   joinToProperty: store.store_key,       schemaVersion: 1 }
+    - { id: order_to_date,       name: 'Order → Date',     inverseName: 'Date ← Order',    fromEntityId: order,    toEntityId: date,          cardinality: 'N:1', category: structural,
+        joinFromProperty: order.order_date,  joinToProperty: date.date,             schemaVersion: 1 }
     - { id: product_category_hierarchy, name: 'Product category hierarchy', fromEntityId: product, toEntityId: product, cardinality: '1:1', category: classification, schemaVersion: 1 }
 
   bindings:
