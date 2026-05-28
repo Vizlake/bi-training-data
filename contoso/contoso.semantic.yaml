@@ -513,7 +513,11 @@ algebra:
     # query_sql, and producing brittle column aliases.
     - { id: date.date,            name: Date,             entityId: date,     propertyId: date.date,            dtype: date,     chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year,            name: Year,             entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.quarter,         name: Quarter,          entityId: date,     propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    # name is "Year-quarter" (not just "Quarter") because propertyId
+    # points at YearQuarter which yields "2024-Q1" labels — already
+    # year-aware. The LLM should pick this alone for quarterly time
+    # series, NOT date.year + date.quarter (yields awkward 2-dim chart).
+    - { id: date.quarter,         name: 'Year-quarter',   entityId: date,     propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
     - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
