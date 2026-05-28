@@ -139,6 +139,12 @@ ontology:
         known as: branch, location, outlet. Filter `status != 'Closed'`
         when ranking by current performance. ~64 of 74 stores have at
         least one sale in the data window.
+
+        The Online virtual store has `StoreKey=999999`, `CountryName='Online'`,
+        and is tagged `Channel='Online'`; every physical location is
+        `Channel='In-store'`. Use the `store.channel` dim to split revenue
+        online-vs-physical — do NOT group by `store.status` (which encodes
+        Open/Closed/Restructured, unrelated to the channel question).
       schemaVersion: 1
     - id: date
       name: Date
@@ -280,13 +286,16 @@ ontology:
     - { id: store.store_key,      entityId: store, name: StoreKey,      dtype: int,     nullable: false, role: primary_key,
         lineage: { sourceTable: store, sourceColumn: StoreKey }, schemaVersion: 1 }
     - { id: store.store_code,     entityId: store, name: StoreCode,     dtype: string,  nullable: false, role: attribute,
-        description: 'Short store code. `OL` is the single Online virtual store; everything else is a physical location.',
+        description: 'Short numeric store code. The Online virtual store has StoreCode=-1; physical stores have positive numeric codes. Prefer the `store.channel` dim over decoding StoreCode for online-vs-physical splits.',
         lineage: { sourceTable: store, sourceColumn: StoreCode }, schemaVersion: 1 }
     - { id: store.country_code,   entityId: store, name: CountryCode,   dtype: string,  nullable: false, role: attribute,
         lineage: { sourceTable: store, sourceColumn: CountryCode }, schemaVersion: 1 }
     - { id: store.country_name,   entityId: store, name: CountryName,   dtype: string,  nullable: false, role: attribute,
         description: 'Country the store sits in. 9 distinct values including the special "Online" pseudo-country.',
         lineage: { sourceTable: store, sourceColumn: CountryName }, schemaVersion: 1 }
+    - { id: store.channel,        entityId: store, name: Channel,       dtype: string,  nullable: false, role: attribute,
+        description: 'Sales-channel flag: "Online" for the virtual store, "In-store" for every physical location. Use this dim for online-vs-physical revenue / units / margin splits.',
+        lineage: { sourceTable: store, sourceColumn: Channel }, schemaVersion: 1 }
     - { id: store.state,          entityId: store, name: State,         dtype: string,  nullable: true,  role: attribute,
         lineage: { sourceTable: store, sourceColumn: State }, schemaVersion: 1 }
     - { id: store.open_date,      entityId: store, name: OpenDate,      dtype: date,    nullable: false, role: attribute,
@@ -540,6 +549,7 @@ algebra:
     - { id: product.manufacturer,     name: Manufacturer,          entityId: product, propertyId: product.manufacturer,     dtype: string, schemaVersion: 1 }
     # ── store ──────────────────────────────────────────────────────────
     - { id: store.country_name,   name: 'Store country',  entityId: store,    propertyId: store.country_name,   dtype: string,   schemaVersion: 1 }
+    - { id: store.channel,        name: 'Sales channel',  entityId: store,    propertyId: store.channel,        dtype: string,   schemaVersion: 1 }
     - { id: store.state,          name: 'Store state',    entityId: store,    propertyId: store.state,          dtype: string,   schemaVersion: 1 }
     - { id: store.store_code,     name: 'Store code',     entityId: store,    propertyId: store.store_code,     dtype: string,   schemaVersion: 1 }
     - { id: store.status,         name: 'Store status',   entityId: store,    propertyId: store.status,         dtype: string,   schemaVersion: 1 }
