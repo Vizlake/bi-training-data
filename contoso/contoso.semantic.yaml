@@ -42,13 +42,20 @@ source:
       definition: A customer with one or more orders within the answer's time window.
     - term: online store
       definition: |
-        A single virtual store row (`store.StoreCode = 'OL'`) representing
-        all e-commerce sales — not a physical location.
+        A single virtual store row (`store.StoreKey = 999999`,
+        `store.Channel = 'Online'`) representing all e-commerce sales — not a
+        physical location. Use the `store.channel` dim to split online vs in-store.
     - term: native currency
       definition: |
         The currency the order was transacted in, recorded on each sale row
         as `sale.CurrencyCode`. Use `revenue_usd` (not `revenue_native`) when
         comparing across regions.
+    - term: region / market
+      definition: |
+        Geographic grouping. "Region" → `customer.continent` (NA/EU/AS/…) or
+        `store.country_name`; "market" / "country" → `customer.country_full`.
+        Pick the customer geo for buyer-side questions, store geo for
+        location-side.
   examples:
     - prompt: What was revenue last quarter?
       description: USD-converted revenue for the most recent quarter in the data.
@@ -566,7 +573,7 @@ algebra:
       name: revenue_usd
       displayName: Revenue (USD)
       description: |
-        Total revenue, USD-converted from each sale's native currency at the
+        Total revenue (sales, turnover, topline), USD-converted at each sale's
         order-date FX rate. Computed as SUM(NetPrice * Quantity * ExchangeRate)
         because NetPrice is the per-unit price after discount, not the line
         total. Verified ground truth: $223,597,711 over the full data window.
@@ -592,7 +599,7 @@ algebra:
       name: units_sold
       displayName: Units sold
       description: |
-        Total number of items sold (sum of line quantities). Verified ground
+        Units sold — quantity, volume (sum of line quantities). Verified ground
         truth: 703,621 units over the full data window.
       entityId: sale
       language: duckdb-sql
@@ -605,9 +612,9 @@ algebra:
       name: orders_count
       displayName: Orders
       description: |
-        Distinct order count. One order may have many sale rows; this metric
-        deduplicates by OrderKey. Verified ground truth: 93,470 orders over
-        the full data window.
+        Distinct order count (orders, transactions, order volume). One order
+        may have many sale rows; this metric deduplicates by OrderKey. Verified
+        ground truth: 93,470 orders over the full data window.
       entityId: sale
       language: duckdb-sql
       agg: count_distinct
@@ -647,8 +654,9 @@ algebra:
       name: gross_margin_usd
       displayName: Gross margin (USD)
       description: |
-        Revenue minus COGS, in USD. Both inputs are USD-converted at the
-        sale row's FX rate. Verified ground truth: $124,991,207.
+        Gross profit — revenue minus COGS in USD (margin dollars, GM$). Both
+        inputs are USD-converted at the sale row's FX rate. Verified ground
+        truth: $124,991,207.
       language: duckdb-sql
       derivedFrom: [revenue_usd, cogs_usd]
       expr: revenue_usd - cogs_usd
@@ -658,9 +666,9 @@ algebra:
       name: gross_margin_pct
       displayName: Gross margin %
       description: |
-        Gross margin as a fraction of revenue. Uses NULLIF on the denominator
-        to avoid divide-by-zero on empty filters. Verified ground truth:
-        55.9% across the full data window.
+        Gross margin percentage / rate of revenue (margin %, markup, GM%). Uses
+        NULLIF on the denominator to avoid divide-by-zero on empty filters.
+        Verified ground truth: 55.9% across the full data window.
       language: duckdb-sql
       derivedFrom: [gross_margin_usd, revenue_usd]
       expr: gross_margin_usd / NULLIF(revenue_usd, 0)
@@ -670,9 +678,9 @@ algebra:
       name: avg_order_value_usd
       displayName: AOV (USD)
       description: |
-        Average order value in USD: revenue divided by distinct order count.
-        Both inputs are pre-aggregated; NULLIF guards against zero-order
-        filter slices. Verified ground truth: $2,392.19.
+        Average order value (AOV, average basket, average ticket) in USD —
+        revenue divided by distinct order count. Both inputs are
+        pre-aggregated; NULLIF guards zero-order slices. Ground truth: $2,392.19.
       language: duckdb-sql
       derivedFrom: [revenue_usd, orders_count]
       expr: revenue_usd / NULLIF(orders_count, 0)
