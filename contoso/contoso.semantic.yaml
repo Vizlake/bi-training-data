@@ -133,6 +133,10 @@ ontology:
       # digest (and, in Phase 2, the compiler) — not just lookup_entity prose.
       validity:
         - { property: customer.end_dt, op: '>', value: current_date }
+      # F-025 — display label expression. Real columns are GivenName/Surname
+      # (PascalCase), NOT the FirstName/LastName an LLM tends to guess. Surfaced
+      # in the always-on digest so raw query_sql SELECTs the right columns first try.
+      labelExpr: GivenName || ' ' || Surname
       schemaVersion: 1
     - id: product
       name: Product
