@@ -129,6 +129,10 @@ ontology:
           GROUP BY 1, 2
           ORDER BY total_spend_usd DESC
           LIMIT 10
+      # F-025 — SCD type-2 validity, structured so it reaches the always-on
+      # digest (and, in Phase 2, the compiler) — not just lookup_entity prose.
+      validity:
+        - { property: customer.end_dt, op: '>', value: current_date }
       schemaVersion: 1
     - id: product
       name: Product
