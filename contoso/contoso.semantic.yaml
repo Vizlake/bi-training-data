@@ -6,10 +6,14 @@
 #             at bootstrap. The first real consumer of the semantic-layer
 #             plumbing. See project-delivery/features/022-contoso-semantic-demo.
 #
-# Numbers in metric.expr verified against the seeded contoso.* schema —
-# every atomic value reproduces brainstorm §1.2 ground truth.
-# Note: NetPrice and UnitCost are PER-UNIT amounts (not line totals),
-# so revenue/cogs expressions all carry an explicit * Quantity factor.
+# Numbers in metric.expr verified against the seeded contoso.* schema.
+# Note: NetPrice and UnitCost are PER-UNIT amounts (not line totals), so
+# revenue/cogs expressions carry an explicit * Quantity factor. ExchangeRate is
+# native-per-USD (e.g. GBP≈0.69, AUD≈1.37, USD=1.0), so USD conversion DIVIDES
+# by it: USD = native / ExchangeRate. (F-025 G20 corrected this — the metric
+# exprs previously multiplied, which inverted FX for non-USD currencies and
+# made per-currency/per-region USD breakdowns wrong; the ground-truth figures
+# below supersede brainstorm §1.2, which used the pre-fix multiply.)
 
 schemaVersion: 1
 sourceId: contoso
@@ -113,16 +117,17 @@ ontology:
           Without this filter, SCD-2 history rows duplicate and SUM(spend)
           double-counts.
         - Display name: `customer.GivenName || ' ' || customer.Surname AS name`.
-        - Total spend in USD: `SUM(sale.NetPrice * sale.ExchangeRate)`.
-          Never use `SUM(sale.NetPrice)` alone — Contoso transacts in
-          multiple currencies (USD/EUR/CAD/GBP/AUD); the raw column is in
-          the transaction's native currency.
+        - Total spend in USD: `SUM(sale.NetPrice * sale.Quantity / sale.ExchangeRate)`.
+          NetPrice is per-unit (× Quantity for the line total) and in the row's
+          native currency; ExchangeRate is native-per-USD, so DIVIDE to get USD.
+          Never `SUM(sale.NetPrice)` alone — Contoso transacts in 5 currencies
+          (USD/EUR/CAD/GBP/AUD) and the column is per-unit native amount.
 
         Worked example — top 10 by spend:
           SELECT
             c.GivenName || ' ' || c.Surname AS name,
             c.CountryFull,
-            ROUND(SUM(s.NetPrice * s.ExchangeRate), 0) AS total_spend_usd
+            ROUND(SUM(s.NetPrice * s.Quantity / s.ExchangeRate), 0) AS total_spend_usd
           FROM contoso.sales s
           JOIN contoso.customer c USING (CustomerKey)
           WHERE c.EndDT > current_date
@@ -205,16 +210,16 @@ ontology:
         description: 'Gross per-unit list price in the sale row''s CurrencyCode. NetPrice (after discount) is the column to aggregate, not this one.',
         lineage: { sourceTable: sales, sourceColumn: UnitPrice }, schemaVersion: 1 }
     - { id: sale.net_price,     entityId: sale, name: NetPrice,     dtype: decimal,   nullable: false, role: attribute, unit: '{native currency}',
-        description: 'Per-unit price AFTER discount in the row''s CurrencyCode. To compute line revenue: NetPrice * Quantity. NEVER sum directly across rows — currencies differ AND the value is per-unit, not per-line. Use the `revenue_usd` metric.',
+        description: 'Per-unit price AFTER discount in the row''s CurrencyCode. Line revenue (native) = NetPrice * Quantity; for USD divide by ExchangeRate (which is native-per-USD). NEVER sum directly across rows — currencies differ AND the value is per-unit, not per-line. Use the `revenue_usd` metric.',
         lineage: { sourceTable: sales, sourceColumn: NetPrice }, schemaVersion: 1 }
     - { id: sale.unit_cost,     entityId: sale, name: UnitCost,     dtype: decimal,   nullable: false, role: attribute, unit: '{native currency}',
-        description: 'Per-unit cost in the row''s CurrencyCode. Like NetPrice, do NOT sum directly. Use the `cogs_usd` metric (= SUM(UnitCost * Quantity * ExchangeRate)).',
+        description: 'Per-unit cost in the row''s CurrencyCode. Like NetPrice, do NOT sum directly. Use the `cogs_usd` metric (= SUM(UnitCost * Quantity / ExchangeRate); ExchangeRate is native-per-USD, so divide).',
         lineage: { sourceTable: sales, sourceColumn: UnitCost }, schemaVersion: 1 }
     - { id: sale.currency_code, entityId: sale, name: CurrencyCode, dtype: string,    nullable: false, role: attribute,
         description: 'ISO-4217 currency the order was transacted in. One of USD / EUR / CAD / GBP / AUD.',
         lineage: { sourceTable: sales, sourceColumn: CurrencyCode }, schemaVersion: 1 }
     - { id: sale.exchange_rate, entityId: sale, name: ExchangeRate, dtype: float,     nullable: false, role: attribute, unit: 'native per USD',
-        description: 'Pre-joined FX rate: native-currency units per USD on the order date. Multiply native amounts by this to convert to USD.',
+        description: 'Pre-joined FX rate: native-currency units per USD on the order date (e.g. GBP≈0.69, EUR≈0.92, AUD≈1.37; USD=1.0). DIVIDE a native amount by this to convert to USD: USD = native / ExchangeRate.',
         lineage: { sourceTable: sales, sourceColumn: ExchangeRate }, schemaVersion: 1 }
 
     # order (6 cols)
@@ -582,12 +587,14 @@ algebra:
       displayName: Revenue (USD)
       description: |
         Total revenue (sales, turnover, topline), USD-converted at each sale's
-        order-date FX rate. Computed as SUM(NetPrice * Quantity * ExchangeRate)
-        because NetPrice is the per-unit price after discount, not the line
-        total. Verified ground truth: $223,597,711 over the full data window.
+        order-date FX rate. Computed as SUM(NetPrice * Quantity / ExchangeRate):
+        NetPrice is the per-unit price after discount (× Quantity for the line
+        total), in the row's native currency; ExchangeRate is native-per-USD,
+        so DIVIDE to convert to USD. Verified ground truth: $219,837,056 over
+        the full data window.
       entityId: sale
       language: duckdb-sql
-      expr: SUM(sale.net_price * sale.quantity * sale.exchange_rate)
+      expr: SUM(sale.net_price * sale.quantity / sale.exchange_rate)
       defaultChart: line
       schemaVersion: 1
     - id: revenue_native
@@ -649,11 +656,12 @@ algebra:
       displayName: COGS (USD)
       description: |
         Total cost of goods sold, USD-converted. Computed as SUM(UnitCost *
-        Quantity * ExchangeRate) — same per-unit-times-quantity-times-FX
-        pattern as `revenue_usd`. Verified ground truth: $98,606,503.
+        Quantity / ExchangeRate) — same per-unit × quantity ÷ FX pattern as
+        `revenue_usd` (ExchangeRate is native-per-USD, so divide). Verified
+        ground truth: $96,924,928.
       entityId: sale
       language: duckdb-sql
-      expr: SUM(sale.unit_cost * sale.quantity * sale.exchange_rate)
+      expr: SUM(sale.unit_cost * sale.quantity / sale.exchange_rate)
       defaultChart: line
       schemaVersion: 1
 
@@ -664,7 +672,7 @@ algebra:
       description: |
         Gross profit — revenue minus COGS in USD (margin dollars, GM$). Both
         inputs are USD-converted at the sale row's FX rate. Verified ground
-        truth: $124,991,207.
+        truth: $122,912,127.
       language: duckdb-sql
       derivedFrom: [revenue_usd, cogs_usd]
       expr: revenue_usd - cogs_usd
@@ -688,7 +696,7 @@ algebra:
       description: |
         Average order value (AOV, average basket, average ticket) in USD —
         revenue divided by distinct order count. Both inputs are
-        pre-aggregated; NULLIF guards zero-order slices. Ground truth: $2,392.19.
+        pre-aggregated; NULLIF guards zero-order slices. Ground truth: $2,351.95.
       language: duckdb-sql
       derivedFrom: [revenue_usd, orders_count]
       expr: revenue_usd / NULLIF(orders_count, 0)
