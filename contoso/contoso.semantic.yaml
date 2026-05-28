@@ -548,6 +548,12 @@ algebra:
     - { id: product.color,            name: Color,                 entityId: product, propertyId: product.color,            dtype: string, schemaVersion: 1 }
     - { id: product.manufacturer,     name: Manufacturer,          entityId: product, propertyId: product.manufacturer,     dtype: string, schemaVersion: 1 }
     # ── store ──────────────────────────────────────────────────────────
+    # G14: the human-readable per-store label ("Contoso Store <place>",
+    # "Online store"). Without this exposed, per-store breakdowns could
+    # only group by store_code (raw -1 / 9 / 8), which is unreadable.
+    # Mirrors product.product_name. Prefer this over store_code when the
+    # user wants to SEE which store.
+    - { id: store.name,           name: Store,            entityId: store,    propertyId: store.description,    dtype: string,   schemaVersion: 1 }
     - { id: store.country_name,   name: 'Store country',  entityId: store,    propertyId: store.country_name,   dtype: string,   schemaVersion: 1 }
     - { id: store.channel,        name: 'Sales channel',  entityId: store,    propertyId: store.channel,        dtype: string,   schemaVersion: 1 }
     - { id: store.state,          name: 'Store state',    entityId: store,    propertyId: store.state,          dtype: string,   schemaVersion: 1 }
