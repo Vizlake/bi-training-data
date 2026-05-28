@@ -92,8 +92,36 @@ ontology:
       description: |
         A retail buyer with demographics, geography, and a validity window
         (StartDT, EndDT) — Contoso applies slowly-changing-dimension type-2
-        tracking. Also known as: client, buyer, shopper. `customer.EndDT`
-        in the future means the row is currently valid.
+        tracking. Also known as: client, buyer, shopper.
+
+        Per-record / per-named-customer queries route to query_sql
+        (per-customer is intentionally NOT exposed as a query_metric
+        dimension — see algebra.dimensions comment).
+
+        SQL conventions when joining sales → customer:
+        - Columns are PascalCase: `GivenName`, `Surname`, `CountryFull`,
+          `City`, `CustomerKey`, `StartDT`, `EndDT`.
+        - Join key: `sale.CustomerKey = customer.CustomerKey`.
+        - Currently-valid rows only: `WHERE customer.EndDT > current_date`.
+          Without this filter, SCD-2 history rows duplicate and SUM(spend)
+          double-counts.
+        - Display name: `customer.GivenName || ' ' || customer.Surname AS name`.
+        - Total spend in USD: `SUM(sale.NetPrice * sale.ExchangeRate)`.
+          Never use `SUM(sale.NetPrice)` alone — Contoso transacts in
+          multiple currencies (USD/EUR/CAD/GBP/AUD); the raw column is in
+          the transaction's native currency.
+
+        Worked example — top 10 by spend:
+          SELECT
+            c.GivenName || ' ' || c.Surname AS name,
+            c.CountryFull,
+            ROUND(SUM(s.NetPrice * s.ExchangeRate), 0) AS total_spend_usd
+          FROM contoso.sales s
+          JOIN contoso.customer c USING (CustomerKey)
+          WHERE c.EndDT > current_date
+          GROUP BY 1, 2
+          ORDER BY total_spend_usd DESC
+          LIMIT 10
       schemaVersion: 1
     - id: product
       name: Product
@@ -475,10 +503,15 @@ algebra:
   # stays in query_sql — high cardinality + weak BI signal + display-
   # heavy. The LLM tool router learns that distinction from the digest.
   dimensions:
-    # ── time (3 grains + month + weekday) ──────────────────────────────
+    # ── time (4 grains + month + weekday) ──────────────────────────────
     # chartKind:temporal — time-axis dimensions even though the stored
     # column dtype is int/string. Without the override the chart
     # heuristic mis-classifies them and lands on scatter.
+    # `date.date` is the daily grain — required so sub-monthly questions
+    # ("daily orders last 90 days", "weekly trend") route through
+    # query_metric instead of speculatively trying it, falling back to
+    # query_sql, and producing brittle column aliases.
+    - { id: date.date,            name: Date,             entityId: date,     propertyId: date.date,            dtype: date,     chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year,            name: Year,             entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.quarter,         name: Quarter,          entityId: date,     propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
