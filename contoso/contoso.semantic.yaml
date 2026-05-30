@@ -51,6 +51,16 @@ source:
     # ISO weeks start Monday (DuckDB's default); declared for the derived
     # week-grain dimension + future relative-time `*_week` ops.
     weekStart: monday
+    # F-024 — the DEFAULT time dimensions for unqualified period questions
+    # ("by quarter", "this year", YoY). Contoso runs an April fiscal year, so
+    # the business reports on FISCAL periods by default; the digest surfaces
+    # this as an explicit directive (the single source of truth — dim names
+    # stay descriptive). Calendar grains (date.year / date.calendar_quarter /
+    # date.half_year) remain queryable when the user asks for "calendar".
+    defaultPeriodDimensions:
+      - date.fiscal_year
+      - date.fiscal_quarter
+      - date.fiscal_half_year
   glossary:
     - term: working day
       definition: A non-weekend day per the `date.WorkingDay` flag.
@@ -544,22 +554,27 @@ algebra:
   # stays in query_sql — high cardinality + weak BI signal + display-
   # heavy. The LLM tool router learns that distinction from the digest.
   dimensions:
-    # ── time (4 grains + month + weekday) ──────────────────────────────
+    # ── time grains ────────────────────────────────────────────────────
     # chartKind:temporal — time-axis dimensions even though the stored
     # column dtype is int/string. Without the override the chart
     # heuristic mis-classifies them and lands on scatter.
+    #
+    # Dimension NAMES are purely DESCRIPTIVE. Which grain is the DEFAULT for an
+    # unqualified period question ("by quarter", "this year") is declared once
+    # in `source.conventions.defaultPeriodDimensions` and surfaced as an
+    # explicit digest directive — the single source of truth (industry pattern:
+    # dbt `metric_time`, Looker `default_grouping`). For Contoso (April fiscal
+    # year) the defaults are the fiscal grains; both fiscal + calendar stay
+    # queryable. ids are stable.
+    #
     # `date.date` is the daily grain — required so sub-monthly questions
     # ("daily orders last 90 days", "weekly trend") route through
     # query_metric instead of speculatively trying it, falling back to
     # query_sql, and producing brittle column aliases.
-    - { id: date.date,            name: Date,             entityId: date,     propertyId: date.date,            dtype: date,     chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.year,            name: Year,             entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    # name is "Year-quarter" (not just "Quarter") because propertyId
-    # points at YearQuarter which yields "2024-Q1" labels — already
-    # year-aware. The LLM should pick this alone for quarterly time
-    # series, NOT date.year + date.quarter (yields awkward 2-dim chart).
-    - { id: date.quarter,         name: 'Year-quarter',   entityId: date,     propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.year, date.quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.date,            name: Date,             entityId: date,     propertyId: date.date,            dtype: date,     chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.year,            name: 'Calendar year',  entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.calendar_quarter, name: 'Calendar quarter', entityId: date,  propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
     - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
     - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: string,   schemaVersion: 1 }
@@ -572,28 +587,33 @@ algebra:
     # whose lexical order ≠ chronological, so each declares a `sortExpr` that
     # the compiler orders by (generalised G6).
     - { id: date.week_start, name: Week, entityId: date, expr: "DATE_TRUNC('week', date.date)", dtype: date, chartKind: temporal,
-        hierarchy: [date.year, date.quarter, date.year_month, date.week_start, date.date], schemaVersion: 1 }
+        hierarchy: [date.year, date.fiscal_quarter, date.year_month, date.week_start, date.date], schemaVersion: 1 }
     - { id: date.half_year,  name: 'Half-year', entityId: date,
         expr: "EXTRACT(year FROM date.date) || '-H' || CEIL(EXTRACT(month FROM date.date) / 6.0)::INT",
         sortExpr: 'date.date', dtype: string, chartKind: temporal, schemaVersion: 1 }
     - { id: date.iso_week,   name: 'ISO week', entityId: date,
         expr: "EXTRACT(isoyear FROM date.date) || '-W' || LPAD(EXTRACT(week FROM date.date)::VARCHAR, 2, '0')",
         sortExpr: 'date.date', dtype: string, chartKind: temporal, schemaVersion: 1 }
-    # ── fiscal grains (F-024 Layer 3) — April–March fiscal year ────────
-    # Derived from date.date by shifting +9 months (the conventions.
-    # fiscalYearStart=04-01 offset: 12 − (4−1) = 9) so the calendar year/
-    # quarter of the shifted date IS the fiscal year/quarter. FY named by the
-    # year it ends in (Apr 2023 → FY2024-Q1). A source with a different fiscal
-    # start changes the shift; the date-entity-author skill scaffolds it.
-    # fiscal_year is an int (sorts itself); fiscal_quarter is a string label
-    # ordered chronologically via sortExpr (the +9-month shifted real date).
+    # ── fiscal grains (F-024 Layer 3+5) — April–March fiscal year, DEFAULT ──
+    # Derived from date.date by shifting +9 months (conventions.fiscalYearStart
+    # =04-01 offset: 12 − (4−1) = 9) so the calendar year/quarter of the shifted
+    # date IS the fiscal year/quarter. FY named by the year it ends in (Apr 2023
+    # → FY2024-Q1). Names are DESCRIPTIVE ("Fiscal year/quarter/half-year"); the
+    # fiscal-default is declared in conventions.defaultPeriodDimensions + the
+    # digest directive, NOT the names. ids keep the `fiscal_` prefix so the
+    # period-comparison compiler (Layer 5) detects them + applies the fiscal
+    # shift to YoY/QoQ axes. fiscal_year is an int (sorts itself); the string
+    # labels order chronologically via sortExpr (the shifted real date).
     - { id: date.fiscal_year, name: 'Fiscal year', entityId: date,
         expr: "EXTRACT(year FROM date.date + INTERVAL '9 months')::INT", dtype: int, chartKind: temporal,
-        hierarchy: [date.fiscal_year, date.fiscal_quarter], schemaVersion: 1 }
+        hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.fiscal_quarter, name: 'Fiscal quarter', entityId: date,
         expr: "'FY' || EXTRACT(year FROM date.date + INTERVAL '9 months')::INT || '-Q' || EXTRACT(quarter FROM date.date + INTERVAL '9 months')::INT",
         sortExpr: 'date.date', dtype: string, chartKind: temporal,
-        hierarchy: [date.fiscal_year, date.fiscal_quarter], schemaVersion: 1 }
+        hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
+    - { id: date.fiscal_half_year, name: 'Fiscal half-year', entityId: date,
+        expr: "'FY' || EXTRACT(year FROM date.date + INTERVAL '9 months')::INT || '-H' || CEIL(EXTRACT(month FROM date.date + INTERVAL '9 months') / 6.0)::INT",
+        sortExpr: 'date.date', dtype: string, chartKind: temporal, schemaVersion: 1 }
     # ── customer geo + demographic ─────────────────────────────────────
     # Per-customer NOT exposed (intentional). "Top customers" / "customer
     # X's history" are display-tier queries the LLM routes to query_sql.
@@ -756,4 +776,32 @@ algebra:
       derivedFrom: [units_sold, orders_count]
       expr: units_sold / NULLIF(orders_count, 0)
       defaultChart: kpi
+      schemaVersion: 1
+    # ── period-over-period comparisons (F-024 Layer 5) ──
+    # Gap-safe: the compiler densifies the base metric against a calendar spine
+    # before LAG, so a period with zero rows doesn't make the comparison skip a
+    # gap. Needs a time axis (timeGrain or a date dim); N derives from kind ×
+    # grain (YoY @ month = 12, @ quarter = 4; MoM @ month = 1; QoQ @ quarter =
+    # 1). The result table carries base / base_prev / the % change side by side.
+    - id: revenue_usd_yoy_pct
+      name: revenue_usd_yoy_pct
+      displayName: Revenue YoY %
+      description: |
+        Year-over-year revenue growth: this period's revenue_usd vs the same
+        period one year earlier, as a fraction. Needs a time axis — group by a
+        date grain (e.g. dimensions:['date.year_month']) or pass timeGrain.
+      language: duckdb-sql
+      periodComparison: { kind: yoy, baseMetricId: revenue_usd }
+      defaultChart: line
+      schemaVersion: 1
+    - id: revenue_usd_mom_pct
+      name: revenue_usd_mom_pct
+      displayName: Revenue MoM %
+      description: |
+        Month-over-month revenue growth: this month's revenue_usd vs the prior
+        month, as a fraction. Needs a monthly time axis (date.year_month or
+        timeGrain:'month').
+      language: duckdb-sql
+      periodComparison: { kind: mom, baseMetricId: revenue_usd }
+      defaultChart: line
       schemaVersion: 1
