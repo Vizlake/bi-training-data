@@ -39,6 +39,14 @@ source:
     fiscalYearStart: 01-01
     timezone: UTC
     dataAsOf: '2025-12-31'
+    # F-024 — the canonical time axis. The compiler truncates THIS column for
+    # `timeGrain` queries (and derived-grain dims reference it), instead of
+    # guessing a fact's order-date column. Contoso has a dedicated date entity
+    # joined via sale.order_date = date.date.
+    primaryDateProperty: date.date
+    # ISO weeks start Monday (DuckDB's default); declared for the derived
+    # week-grain dimension + future relative-time `*_week` ops.
+    weekStart: monday
   glossary:
     - term: working day
       definition: A non-weekend day per the `date.WorkingDay` flag.
@@ -551,6 +559,22 @@ algebra:
     - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
     - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
     - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: string,   schemaVersion: 1 }
+    # ── derived grains (F-024) ─────────────────────────────────────────
+    # No source columns — the compiler DERIVES these from the base date
+    # column (date.date) via DuckDB date functions, the way Looker/Cube do.
+    # `entityId: date` drives the join; `expr` supplies the projected SQL
+    # (its `date.date` ref rewrites to the physical Date column). week_start
+    # is a real DATE (sorts itself); half_year / iso_week are string labels
+    # whose lexical order ≠ chronological, so each declares a `sortExpr` that
+    # the compiler orders by (generalised G6).
+    - { id: date.week_start, name: Week, entityId: date, expr: "DATE_TRUNC('week', date.date)", dtype: date, chartKind: temporal,
+        hierarchy: [date.year, date.quarter, date.year_month, date.week_start, date.date], schemaVersion: 1 }
+    - { id: date.half_year,  name: 'Half-year', entityId: date,
+        expr: "EXTRACT(year FROM date.date) || '-H' || CEIL(EXTRACT(month FROM date.date) / 6.0)::INT",
+        sortExpr: 'date.date', dtype: string, chartKind: temporal, schemaVersion: 1 }
+    - { id: date.iso_week,   name: 'ISO week', entityId: date,
+        expr: "EXTRACT(isoyear FROM date.date) || '-W' || LPAD(EXTRACT(week FROM date.date)::VARCHAR, 2, '0')",
+        sortExpr: 'date.date', dtype: string, chartKind: temporal, schemaVersion: 1 }
     # ── customer geo + demographic ─────────────────────────────────────
     # Per-customer NOT exposed (intentional). "Top customers" / "customer
     # X's history" are display-tier queries the LLM routes to query_sql.
