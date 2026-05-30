@@ -659,6 +659,9 @@ algebra:
       language: duckdb-sql
       expr: SUM(sale.net_price * sale.quantity / sale.exchange_rate)
       defaultChart: line
+      # G28 — money. Currency CODE resolves from conventions.reportingCurrency
+      # at render (not carried here, not hardcoded $).
+      format: { kind: currency, precision: 0 }
       schemaVersion: 1
     - id: revenue_native
       name: revenue_native
@@ -726,6 +729,7 @@ algebra:
       language: duckdb-sql
       expr: SUM(sale.unit_cost * sale.quantity / sale.exchange_rate)
       defaultChart: line
+      format: { kind: currency, precision: 0 }
       schemaVersion: 1
 
     # ── 4 derived ──
@@ -740,6 +744,7 @@ algebra:
       derivedFrom: [revenue_usd, cogs_usd]
       expr: revenue_usd - cogs_usd
       defaultChart: line
+      format: { kind: currency, precision: 0 }
       schemaVersion: 1
     - id: gross_margin_pct
       name: gross_margin_pct
@@ -752,6 +757,9 @@ algebra:
       derivedFrom: [gross_margin_usd, revenue_usd]
       expr: gross_margin_usd / NULLIF(revenue_usd, 0)
       defaultChart: line
+      # G28 — a 0–1 rate. Declared so it renders "55.9%" on every surface
+      # (axis / tooltip / KPI) instead of "0.6"; NEVER inferred from the value.
+      format: { kind: percent, precision: 1 }
       schemaVersion: 1
     - id: avg_order_value_usd
       name: avg_order_value_usd
@@ -764,6 +772,7 @@ algebra:
       derivedFrom: [revenue_usd, orders_count]
       expr: revenue_usd / NULLIF(orders_count, 0)
       defaultChart: kpi
+      format: { kind: currency, precision: 0 }
       schemaVersion: 1
     - id: units_per_order
       name: units_per_order
