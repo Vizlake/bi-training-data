@@ -602,10 +602,14 @@ algebra:
     # fiscal-default is declared in conventions.defaultPeriodDimensions + the
     # digest directive, NOT the names. ids keep the `fiscal_` prefix so the
     # period-comparison compiler (Layer 5) detects them + applies the fiscal
-    # shift to YoY/QoQ axes. fiscal_year is an int (sorts itself); the string
-    # labels order chronologically via sortExpr (the shifted real date).
+    # shift to YoY/QoQ axes. All three fiscal grains share the `FY<ending year>`
+    # label convention (FY2024 / FY2024-Q1 / FY2024-H1) so fiscal periods read
+    # consistently and stay visually distinct from the calendar grains (2024 /
+    # Q1-2024 / 2024-H1). The string labels order chronologically via sortExpr
+    # (the underlying real date), not lexically.
     - { id: date.fiscal_year, name: 'Fiscal year', entityId: date,
-        expr: "EXTRACT(year FROM date.date + INTERVAL '9 months')::INT", dtype: int, chartKind: temporal,
+        expr: "'FY' || EXTRACT(year FROM date.date + INTERVAL '9 months')::INT",
+        sortExpr: 'date.date', dtype: string, chartKind: temporal,
         hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.fiscal_quarter, name: 'Fiscal quarter', entityId: date,
         expr: "'FY' || EXTRACT(year FROM date.date + INTERVAL '9 months')::INT || '-Q' || EXTRACT(quarter FROM date.date + INTERVAL '9 months')::INT",
