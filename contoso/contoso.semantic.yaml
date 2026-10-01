@@ -123,9 +123,10 @@ ontology:
       name: Customer
       displayName: Customer
       description: |
-        A retail buyer with demographics, geography, and a validity window
-        (StartDT, EndDT) — Contoso applies slowly-changing-dimension type-2
-        tracking. Also known as: client, buyer, shopper.
+        A retail buyer with demographics, geography, and an activity period
+        (StartDT, EndDT). There is one row per customer, and every order falls
+        within the customer's activity period. Also known as: client, buyer,
+        shopper.
 
         Per-record / per-named-customer queries route to query_sql
         (per-customer is intentionally NOT exposed as a query_metric
@@ -135,9 +136,9 @@ ontology:
         - Columns are PascalCase: `GivenName`, `Surname`, `CountryFull`,
           `City`, `CustomerKey`, `StartDT`, `EndDT`.
         - Join key: `sale.CustomerKey = customer.CustomerKey`.
-        - Currently-valid rows only: `WHERE customer.EndDT > current_date`.
-          Without this filter, SCD-2 history rows duplicate and SUM(spend)
-          double-counts.
+        - One row per customer, so the join never duplicates sales rows.
+          Filter on `customer.EndDT` only when the question is about active
+          customers (an EndDT after the data's as-of date).
         - Display name: `customer.GivenName || ' ' || customer.Surname AS name`.
         - Total spend in USD: `SUM(sale.NetPrice * sale.Quantity / sale.ExchangeRate)`.
           NetPrice is per-unit (× Quantity for the line total) and in the row's
@@ -152,14 +153,9 @@ ontology:
             ROUND(SUM(s.NetPrice * s.Quantity / s.ExchangeRate), 0) AS total_spend_usd
           FROM contoso.sales s
           JOIN contoso.customer c USING (CustomerKey)
-          WHERE c.EndDT > current_date
           GROUP BY 1, 2
           ORDER BY total_spend_usd DESC
           LIMIT 10
-      # F-025 — SCD type-2 validity, structured so it reaches the always-on
-      # digest (and, in Phase 2, the compiler) — not just lookup_entity prose.
-      validity:
-        - { property: customer.end_dt, op: '>', value: current_date }
       # F-025 — display label expression. Real columns are GivenName/Surname
       # (PascalCase), NOT the FirstName/LastName an LLM tends to guess. Surfaced
       # in the always-on digest so raw query_sql SELECTs the right columns first try.
@@ -264,10 +260,10 @@ ontology:
     - { id: customer.geo_area_key, entityId: customer, name: GeoAreaKey, dtype: int, nullable: true, role: attribute,
         lineage: { sourceTable: customer, sourceColumn: GeoAreaKey }, schemaVersion: 1 }
     - { id: customer.start_dt,     entityId: customer, name: StartDT,    dtype: date, nullable: false, role: attribute,
-        description: 'Start of this customer-row''s SCD-type-2 validity window. The row is valid from this date.',
+        description: 'Start of the customer''s activity period, when they could first place an order.',
         lineage: { sourceTable: customer, sourceColumn: StartDT }, schemaVersion: 1 }
     - { id: customer.end_dt,       entityId: customer, name: EndDT,      dtype: date, nullable: false, role: attribute,
-        description: 'End of this customer-row''s SCD-type-2 validity window. A future EndDT means the row is currently valid.',
+        description: 'End of the customer''s activity period. An EndDT after the data''s as-of date means the customer is still active.',
         lineage: { sourceTable: customer, sourceColumn: EndDT }, schemaVersion: 1 }
     - { id: customer.continent,    entityId: customer, name: Continent,   dtype: string, nullable: false, role: attribute,
         description: 'One of three: North America, Europe, Asia. Highest level of the customer geography hierarchy.',
