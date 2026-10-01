@@ -137,8 +137,10 @@ ontology:
           `City`, `CustomerKey`, `StartDT`, `EndDT`.
         - Join key: `sale.CustomerKey = customer.CustomerKey`.
         - One row per customer, so the join never duplicates sales rows.
-          Filter on `customer.EndDT` only when the question is about active
-          customers (an EndDT after the data's as-of date).
+          Filter on `customer.EndDT` only when the question asks for customers
+          whose activity period is still open (an EndDT after the data's as-of
+          date). An active customer is one with orders in the answer's time
+          window (see the glossary), which is not the same thing.
         - Display name: `customer.GivenName || ' ' || customer.Surname AS name`.
         - Total spend in USD: `SUM(sale.NetPrice * sale.Quantity / sale.ExchangeRate)`.
           NetPrice is per-unit (× Quantity for the line total) and in the row's
@@ -263,7 +265,7 @@ ontology:
         description: 'Start of the customer''s activity period, when they could first place an order.',
         lineage: { sourceTable: customer, sourceColumn: StartDT }, schemaVersion: 1 }
     - { id: customer.end_dt,       entityId: customer, name: EndDT,      dtype: date, nullable: false, role: attribute,
-        description: 'End of the customer''s activity period. An EndDT after the data''s as-of date means the customer is still active.',
+        description: 'End of the customer''s activity period. An EndDT after the data''s as-of date means the period is still open.',
         lineage: { sourceTable: customer, sourceColumn: EndDT }, schemaVersion: 1 }
     - { id: customer.continent,    entityId: customer, name: Continent,   dtype: string, nullable: false, role: attribute,
         description: 'One of three: North America, Europe, Asia. Highest level of the customer geography hierarchy.',
