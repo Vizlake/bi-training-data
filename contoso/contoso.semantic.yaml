@@ -655,6 +655,10 @@ algebra:
     - { id: store.state,          name: 'Store state',    entityId: store,    propertyId: store.state,          dtype: string,   schemaVersion: 1 }
     - { id: store.store_code,     name: 'Store code',     entityId: store,    propertyId: store.store_code,     dtype: string,   schemaVersion: 1 }
     - { id: store.status,         name: 'Store status',   entityId: store,    propertyId: store.status,         dtype: string,   schemaVersion: 1 }
+    # A store's opening date and size go beside its figures when a store is judged ("is a new
+    # store worth it?"), so a metric can group by them as it does by status.
+    - { id: store.open_date,      name: 'Store opened',   entityId: store,    propertyId: store.open_date,      dtype: date,     schemaVersion: 1 }
+    - { id: store.square_meters,  name: 'Store size (m²)', entityId: store,   propertyId: store.square_meters,  dtype: int,      schemaVersion: 1 }
 
   metrics:
     # ── 6 atomic ──
