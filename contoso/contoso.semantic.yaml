@@ -62,8 +62,6 @@ source:
       - date.fiscal_quarter
       - date.fiscal_half_year
   glossary:
-    - term: working day
-      definition: A non-weekend day per the `date.WorkingDay` flag.
     - term: active customer
       definition: A customer with one or more orders within the answer's time window.
     - term: online store
@@ -82,6 +80,14 @@ source:
         `store.country_name`; "market" / "country" → `customer.country_full`.
         Pick the customer geo for buyer-side questions, store geo for
         location-side.
+    - term: fiscal year
+      definition: |
+        April to March, named by the calendar year it ends in: FY2024 runs
+        April 2023 to March 2024, and FY2024-Q1 is April to June 2023.
+    - term: product code
+      definition: |
+        Seven digits, stored with no spaces or hyphens (`0303011`), and read
+        out digit by digit: a code heard as "0303 011" is 0303011.
   examples:
     - prompt: What was revenue last quarter?
       description: USD-converted revenue for the most recent quarter in the data.
@@ -104,10 +110,10 @@ ontology:
       description: |
         A single sold line-item — one product, one customer, one store, on
         one day, in one currency. The canonical fact table. Use this for
-        any revenue, units, COGS, or margin question. Also known as: line
-        item, transaction. NEVER aggregate `NetPrice` or `UnitCost`
-        directly across currencies — use the `revenue_usd` / `cogs_usd`
-        metrics which include the FX conversion.
+        any revenue, units, COGS, or margin question. NEVER aggregate
+        `NetPrice` or `UnitCost` directly across currencies — use the
+        `revenue_usd` / `cogs_usd` metrics which include the FX conversion.
+      synonyms: [line item, transaction]
       schemaVersion: 1
     - id: order
       name: Order
@@ -125,8 +131,7 @@ ontology:
       description: |
         A retail buyer with demographics, geography, and an activity period
         (StartDT, EndDT). There is one row per customer, and every order falls
-        within the customer's activity period. Also known as: client, buyer,
-        shopper.
+        within the customer's activity period.
 
         Per-record / per-named-customer queries route to query_sql
         (per-customer is intentionally NOT exposed as a query_metric
@@ -158,6 +163,7 @@ ontology:
           GROUP BY 1, 2
           ORDER BY total_spend_usd DESC
           LIMIT 10
+      synonyms: [client, buyer, shopper]
       # F-025 — display label expression. Real columns are GivenName/Surname
       # (PascalCase), NOT the FirstName/LastName an LLM tends to guess. Surfaced
       # in the always-on digest so raw query_sql SELECTs the right columns first try.
@@ -169,7 +175,8 @@ ontology:
       description: |
         A SKU with cost, list price, brand, manufacturer, and a four-level
         category hierarchy (Category → SubCategory → Brand → Product).
-        ~2,517 active SKUs across 8 categories. Also known as: item, SKU.
+        ~2,517 active SKUs across 8 categories.
+      synonyms: [item, SKU]
       schemaVersion: 1
     - id: store
       name: Store
@@ -315,7 +322,8 @@ ontology:
     - { id: product.category_key,  entityId: product, name: CategoryKey,  dtype: int,     nullable: false, role: attribute,
         lineage: { sourceTable: product, sourceColumn: CategoryKey }, schemaVersion: 1 }
     - { id: product.category_name, entityId: product, name: CategoryName, dtype: string,  nullable: false, role: attribute,
-        description: 'Top-level product category. Also known as: department. 8 categories total (Audio, Cameras, Computers, ...).',
+        description: 'Top-level product category. 8 categories total (Audio, Cameras, Computers, ...).',
+        synonyms: [department],
         lineage: { sourceTable: product, sourceColumn: CategoryName }, schemaVersion: 1 }
     - { id: product.subcategory_key,  entityId: product, name: SubCategoryKey,  dtype: int,    nullable: false, role: attribute,
         lineage: { sourceTable: product, sourceColumn: SubCategoryKey }, schemaVersion: 1 }
@@ -632,6 +640,9 @@ algebra:
     - { id: product.product_name,     name: Product,               entityId: product, propertyId: product.product_name,     dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
     - { id: product.color,            name: Color,                 entityId: product, propertyId: product.color,            dtype: string, schemaVersion: 1 }
     - { id: product.manufacturer,     name: Manufacturer,          entityId: product, propertyId: product.manufacturer,     dtype: string, schemaVersion: 1 }
+    # People name a product by its code ("product code 0303011"), so a metric
+    # can filter and group by it, as by store.store_code.
+    - { id: product.product_code,     name: 'Product code',        entityId: product, propertyId: product.product_code,     dtype: string, schemaVersion: 1 }
     # ── store ──────────────────────────────────────────────────────────
     # G14: the human-readable per-store label ("Contoso Store <place>",
     # "Online store"). Without this exposed, per-store breakdowns could
@@ -651,12 +662,13 @@ algebra:
       name: revenue_usd
       displayName: Revenue (USD)
       description: |
-        Total revenue (sales, turnover, topline), USD-converted at each sale's
+        Total revenue, USD-converted at each sale's
         order-date FX rate. Computed as SUM(NetPrice * Quantity / ExchangeRate):
         NetPrice is the per-unit price after discount (× Quantity for the line
         total), in the row's native currency; ExchangeRate is native-per-USD,
         so DIVIDE to convert to USD. Verified ground truth: $219,837,056 over
         the full data window.
+      synonyms: [sales, turnover, topline]
       entityId: sale
       language: duckdb-sql
       expr: SUM(sale.net_price * sale.quantity / sale.exchange_rate)
