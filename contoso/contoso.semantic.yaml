@@ -334,7 +334,7 @@ ontology:
     - { id: store.store_key,      entityId: store, name: StoreKey,      dtype: int,     nullable: false, role: primary_key,
         lineage: { sourceTable: store, sourceColumn: StoreKey }, schemaVersion: 1 }
     - { id: store.store_code,     entityId: store, name: StoreCode,     dtype: string,  nullable: false, role: attribute,
-        description: 'Short numeric store code. The Online virtual store has StoreCode=-1; physical stores have positive numeric codes. Prefer the `store.channel` dim over decoding StoreCode for online-vs-physical splits.',
+        description: 'Short numeric store code. The Online virtual store has StoreCode=-1; physical stores have positive numeric codes. Prefer the `store.channel` dim over decoding StoreCode for online-vs-physical splits. A restructured store keeps its code and its name under a new StoreKey, so one code or name can stand for more than one store row (74 stores, 67 codes).',
         lineage: { sourceTable: store, sourceColumn: StoreCode }, schemaVersion: 1 }
     - { id: store.country_code,   entityId: store, name: CountryCode,   dtype: string,  nullable: false, role: attribute,
         lineage: { sourceTable: store, sourceColumn: CountryCode }, schemaVersion: 1 }
@@ -357,6 +357,7 @@ ontology:
     - { id: store.square_meters,  entityId: store, name: SquareMeters,  dtype: int,     nullable: true,  role: attribute, unit: 'square metres',
         lineage: { sourceTable: store, sourceColumn: SquareMeters }, schemaVersion: 1 }
     - { id: store.description,    entityId: store, name: Description,   dtype: string,  nullable: true,  role: attribute,
+        description: 'The store''s name ("Contoso Store <place>", "Online store"). A restructured store keeps its name under a new StoreKey, so one name can stand for more than one store row.',
         lineage: { sourceTable: store, sourceColumn: Description }, schemaVersion: 1 }
 
     # date (10 cols — calendar)
@@ -655,6 +656,12 @@ algebra:
     - { id: store.state,          name: 'Store state',    entityId: store,    propertyId: store.state,          dtype: string,   schemaVersion: 1 }
     - { id: store.store_code,     name: 'Store code',     entityId: store,    propertyId: store.store_code,     dtype: string,   schemaVersion: 1 }
     - { id: store.status,         name: 'Store status',   entityId: store,    propertyId: store.status,         dtype: string,   schemaVersion: 1 }
+    # A store's opening date and size go beside its figures when a store is judged ("is a new
+    # store worth it?"), so a metric can group by them as it does by status. The opening date is
+    # an attribute of the store, not the axis its figures run along: read as time, it would
+    # order a top-N by date instead of by the figure.
+    - { id: store.open_date,      name: 'Store opened',   entityId: store,    propertyId: store.open_date,      dtype: date,     chartKind: categorical, schemaVersion: 1 }
+    - { id: store.square_meters,  name: 'Store size (m²)', entityId: store,   propertyId: store.square_meters,  dtype: int,      schemaVersion: 1 }
 
   metrics:
     # ── 6 atomic ──
