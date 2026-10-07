@@ -27,7 +27,7 @@ source:
     Contoso is a fictional global retailer selling consumer electronics, home
     appliances, and accessories. ~94k orders across 9.6 years (2016-05 →
     2025-12), five trading currencies (USD/EUR/CAD/GBP/AUD), 8 product
-    categories, ~2.5k SKUs, 74 stores in 9 countries plus an Online store.
+    categories, ~2.5k SKUs, 73 stores in 8 countries plus an Online store.
     All transactional amounts are in the order's native currency; the
     `revenue_usd` and `cogs_usd` metrics convert to USD automatically via the
     `ExchangeRate` column on each sale.
@@ -77,8 +77,9 @@ source:
         comparing across regions.
     - term: region / market
       definition: |
-        Geographic grouping. "Region" → `customer.continent` (NA/EU/AS/…) or
-        `store.country_name`; "market" / "country" → `customer.country_full`.
+        Geographic grouping. "Region" → `customer.continent` (Australia,
+        Europe, North America) or `store.country_name`; "market" / "country"
+        → `customer.country_full`.
         Pick the customer geo for buyer-side questions, store geo for
         location-side.
     - term: fiscal year
@@ -228,13 +229,13 @@ ontology:
         description: 'Foreign key to the order header. Multiple sale rows share an OrderKey when the order has multiple line items.',
         lineage: { sourceTable: sales, sourceColumn: OrderKey }, schemaVersion: 1 }
     - { id: sale.line_number,   entityId: sale, name: LineNumber,   dtype: int,       nullable: false, role: attribute,
-        description: 'The line''s position in its order, numbered from 0 (0 to 6). With OrderKey it names one sale row.',
+        description: 'The line''s number in its order, from 0 (0 to 6). 1,448 orders skip a number, so count an order''s lines rather than reading the count from the highest number. With OrderKey it names one sale row.',
         lineage: { sourceTable: sales, sourceColumn: LineNumber }, schemaVersion: 1 }
     - { id: sale.order_date,    entityId: sale, name: OrderDate,    dtype: date,      nullable: false, role: foreign_key,
         description: 'The date the order was placed. Joins to date.Date for time intelligence.',
         lineage: { sourceTable: sales, sourceColumn: OrderDate }, schemaVersion: 1 }
     - { id: sale.delivery_date, entityId: sale, name: DeliveryDate, dtype: date,      nullable: true,  role: attribute,
-        description: 'The day the line was delivered: the order date or later, never earlier. Time series follow the order date unless a question names delivery.',
+        description: 'The day the line was delivered: the order date or later, never earlier. Time series follow the order date; group by this date only when the question asks when lines were delivered.',
         lineage: { sourceTable: sales, sourceColumn: DeliveryDate }, schemaVersion: 1 }
     - { id: sale.customer_key,  entityId: sale, name: CustomerKey,  dtype: int,       nullable: false, role: foreign_key,
         lineage: { sourceTable: sales, sourceColumn: CustomerKey }, schemaVersion: 1 }
@@ -271,7 +272,7 @@ ontology:
     - { id: order.order_date,    entityId: order, name: OrderDate,    dtype: date,   nullable: false, role: foreign_key,
         lineage: { sourceTable: orders, sourceColumn: OrderDate }, schemaVersion: 1 }
     - { id: order.delivery_date, entityId: order, name: DeliveryDate, dtype: date,   nullable: true,  role: attribute,
-        description: 'The day the order was delivered: the order date or later, never earlier; the same day for 58% of orders.',
+        description: 'The day the order was delivered: the order date or later, never earlier. The share delivered the same day changes a lot from year to year: count it for the period asked.',
         lineage: { sourceTable: orders, sourceColumn: DeliveryDate }, schemaVersion: 1 }
     - { id: order.currency_code, entityId: order, name: CurrencyCode, dtype: string, nullable: false, role: attribute,
         description: 'The currency the order was billed in (AUD, CAD, EUR, GBP or USD); every line of the order shares it. Its amounts are in that currency: revenue_usd converts them.',
@@ -290,7 +291,7 @@ ontology:
         description: 'End of the customer''s activity period. An EndDT after the data''s as-of date means the period is still open.',
         lineage: { sourceTable: customer, sourceColumn: EndDT }, schemaVersion: 1 }
     - { id: customer.continent,    entityId: customer, name: Continent,   dtype: string, nullable: false, role: attribute,
-        description: 'One of three: North America, Europe, Asia. Highest level of the customer geography hierarchy.',
+        description: 'One of three: Australia, Europe, North America. Highest level of the customer geography hierarchy.',
         lineage: { sourceTable: customer, sourceColumn: Continent }, schemaVersion: 1 }
     - { id: customer.country,      entityId: customer, name: Country,     dtype: string, nullable: false, role: attribute,
         description: 'Two-letter country code (ISO 3166-1 alpha-2).',
@@ -299,7 +300,7 @@ ontology:
         description: 'Full country name. Prefer this over the two-letter code for display.',
         lineage: { sourceTable: customer, sourceColumn: CountryFull }, schemaVersion: 1 }
     - { id: customer.state,        entityId: customer, name: State,       dtype: string, nullable: true,  role: attribute,
-        description: 'The state, province or region of the customer''s address as the source writes it: a short code in most countries (NJ, QC, QLD), an area name in the United Kingdom. 565 values.',
+        description: 'The state, province or region of the customer''s address as the source writes it: a short code in most countries (NJ, QC, QLD), an area name in the United Kingdom. 565 values, and 40 codes recur in several countries (WA is Washington and Western Australia): group it with customer.country_full.',
         lineage: { sourceTable: customer, sourceColumn: State }, schemaVersion: 1 }
     - { id: customer.city,         entityId: customer, name: City,        dtype: string, nullable: true,  role: attribute,
         description: 'The city of the customer''s address as written (34,581 values). A city name can recur in several states: group it with customer.state.',
@@ -327,13 +328,13 @@ ontology:
         description: 'Product brand. 11 brands total; Contoso''s own-brand SKUs account for ~28% of the catalogue.',
         lineage: { sourceTable: product, sourceColumn: Brand }, schemaVersion: 1 }
     - { id: product.manufacturer,  entityId: product, name: Manufacturer, dtype: string,  nullable: false, role: attribute,
-        description: 'The company that makes the product (11 values, such as "Proseware, Inc."). Each has one brand, its shorter name in product.brand ("Proseware").',
+        description: 'The company that makes the product (11 values, such as "Proseware, Inc."). Each has one brand, product.brand, under the same name or a shorter one ("Proseware").',
         lineage: { sourceTable: product, sourceColumn: Manufacturer }, schemaVersion: 1 }
     - { id: product.color,         entityId: product, name: Color,        dtype: string,  nullable: true,  role: attribute,
         description: 'The product''s colour (17 values). Both "Blue" and "blue" occur: compare it case-insensitively.',
         lineage: { sourceTable: product, sourceColumn: Color }, schemaVersion: 1 }
     - { id: product.weight,        entityId: product, name: Weight,       dtype: float,   nullable: true,  role: attribute,
-        description: 'The product''s weight in the unit product.weight_unit names (grams, ounces or pounds): never add or compare weights across units. NULL for 284 products.',
+        description: 'The product''s weight in the unit product.weight_unit names (grams, ounces or pounds): convert to one unit before adding or comparing weights (1 pound = 16 ounces = 453.59 grams). NULL for 284 products.',
         lineage: { sourceTable: product, sourceColumn: Weight }, schemaVersion: 1 }
     - { id: product.weight_unit,   entityId: product, name: WeightUnit,   dtype: string,  nullable: true,  role: attribute,
         description: 'The unit of product.weight: grams, ounces or pounds. NULL for 222 products, which have no weight either.',
@@ -352,7 +353,7 @@ ontology:
         synonyms: [department],
         lineage: { sourceTable: product, sourceColumn: CategoryName }, schemaVersion: 1 }
     - { id: product.subcategory_key,  entityId: product, name: SubCategoryKey,  dtype: int,    nullable: false, role: attribute,
-        description: 'The subcategory''s number: its category''s number times 100, plus a count (305 is in category 3). product.subcategory_name is its name.',
+        description: 'The subcategory''s number: its category''s number times 100, plus a number from 1 to 8 (305 is in category 3). product.subcategory_name is its name.',
         lineage: { sourceTable: product, sourceColumn: SubCategoryKey }, schemaVersion: 1 }
     - { id: product.subcategory_name, entityId: product, name: SubCategoryName, dtype: string, nullable: false, role: attribute,
         description: 'The product''s subcategory (32 values, such as "Camcorders"), each within one category.',
@@ -405,10 +406,10 @@ ontology:
         description: 'The calendar quarter without its year, "Q1" to "Q4": group it with date.year, or use date.calendar_quarter for a quarter of one year.',
         lineage: { sourceTable: date, sourceColumn: Quarter }, schemaVersion: 1 }
     - { id: date.year_quarter,    entityId: date, name: YearQuarter,  dtype: string, nullable: false, role: attribute,
-        description: 'Year-and-quarter as a single label, e.g. "2024 Q3". Use for time-series sorted by quarter.',
+        description: 'Year-and-quarter as a single label, e.g. "Q3-2024". Use for time-series sorted by quarter.',
         lineage: { sourceTable: date, sourceColumn: YearQuarter }, schemaVersion: 1 }
     - { id: date.year_month,      entityId: date, name: YearMonth,    dtype: string, nullable: false, role: attribute,
-        description: 'Year-and-month label, e.g. "2024-Jul". Canonical monthly grain.',
+        description: 'Year-and-month label, e.g. "July 2024". Canonical monthly grain.',
         lineage: { sourceTable: date, sourceColumn: YearMonth }, schemaVersion: 1 }
     - { id: date.month,           entityId: date, name: Month,        dtype: string, nullable: false, role: attribute,
         description: 'The month name without its year, "January" to "December": sort by date.month_number, and use date.year_month for a month of one year.',
@@ -419,8 +420,8 @@ ontology:
     - { id: date.day_of_week,     entityId: date, name: DayofWeek,    dtype: string, nullable: false, role: attribute,
         description: 'The weekday name, "Monday" to "Sunday".',
         lineage: { sourceTable: date, sourceColumn: DayofWeek }, schemaVersion: 1 }
-    - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: string, nullable: false, role: attribute,
-        description: 'Y/N flag for non-weekend days. About 69% of rows are working days.',
+    - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: int,    nullable: false, role: attribute,
+        description: '1 for a working day and 0 for any other day (a number, not Y/N). About 69% of days are working days.',
         lineage: { sourceTable: date, sourceColumn: WorkingDay }, schemaVersion: 1 }
 
     # currency_rate (4 cols)
@@ -619,9 +620,9 @@ algebra:
     - { id: date.year,            name: 'Calendar year',  entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.calendar_quarter, name: 'Calendar quarter', entityId: date,  propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
-    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
-    - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: string,   schemaVersion: 1 }
+    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   sortExpr: 'date.month_number', schemaVersion: 1 }
+    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   sortExpr: 'ISODOW(date.date)', schemaVersion: 1 }
+    - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: int,      chartKind: categorical, schemaVersion: 1 }
     # ── derived grains (F-024) ─────────────────────────────────────────
     # No source columns — the compiler DERIVES these from the base date
     # column (date.date) via DuckDB date functions, the way Looker/Cube do.
