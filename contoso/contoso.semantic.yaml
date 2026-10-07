@@ -191,16 +191,18 @@ ontology:
       displayName: Store
       grain: 'One row per store (StoreKey), the single Online store included.'
       description: |
-        A physical retail location or the single Online virtual store. Also
-        known as: branch, location, outlet. Filter `status != 'Closed'`
-        when ranking by current performance. ~64 of 74 stores have at
-        least one sale in the data window.
+        A physical retail location or the single Online virtual store. A
+        current store is one with no CloseDate (`CloseDate IS NULL`):
+        `Status` is NULL for open stores, so `Status != 'Closed'` drops every
+        one of them. 64 of 74 stores have at least one sale in the data window.
 
         The Online virtual store has `StoreKey=999999`, `CountryName='Online'`,
         and is tagged `Channel='Online'`; every physical location is
         `Channel='In-store'`. Use the `store.channel` dim to split revenue
-        online-vs-physical — do NOT group by `store.status` (which encodes
-        Open/Closed/Restructured, unrelated to the channel question).
+        online-vs-physical — do NOT group by `store.status` (NULL for open
+        stores, 'Closed' or 'Restructured' otherwise; unrelated to the channel
+        question).
+      synonyms: [branch, location, outlet]
       schemaVersion: 1
     - id: date
       name: Date
@@ -208,9 +210,9 @@ ontology:
       grain: 'One row per calendar day, 2016-01-01 to 2026-12-31.'
       description: |
         Conformed calendar table covering 2016-01-01 → 2026-12-31 (11 years).
-        Always join through this entity for time intelligence — the columns
-        `Year`, `Quarter`, `YearMonth`, `WorkingDay` are the canonical
-        time grains.
+        Always join through this entity for time intelligence: `Date`,
+        `YearMonth`, `YearQuarter` and `Year` are its calendar grains, while
+        `Quarter` and `Month` name a period without its year.
       schemaVersion: 1
     - id: currency_rate
       name: Currency rate
@@ -259,7 +261,7 @@ ontology:
         description: 'ISO-4217 currency the order was transacted in. One of USD / EUR / CAD / GBP / AUD.',
         lineage: { sourceTable: sales, sourceColumn: CurrencyCode }, schemaVersion: 1 }
     - { id: sale.exchange_rate, entityId: sale, name: ExchangeRate, dtype: float,     nullable: false, role: attribute, unit: 'native per USD',
-        description: 'Pre-joined FX rate: native-currency units per USD on the order date (e.g. GBP≈0.69, EUR≈0.92, AUD≈1.37; USD=1.0). DIVIDE a native amount by this to convert to USD: USD = native / ExchangeRate.',
+        description: 'Pre-joined FX rate: native-currency units per USD on the order date (medians over the data: GBP 0.79, EUR 0.92, CAD 1.34, AUD 1.49; USD 1.0). DIVIDE a native amount by this to convert to USD: USD = native / ExchangeRate.',
         lineage: { sourceTable: sales, sourceColumn: ExchangeRate }, schemaVersion: 1 }
 
     # order (6 cols)
@@ -340,16 +342,16 @@ ontology:
         description: 'The unit of product.weight: grams, ounces or pounds. NULL for 222 products, which have no weight either.',
         lineage: { sourceTable: product, sourceColumn: WeightUnit }, schemaVersion: 1 }
     - { id: product.cost,          entityId: product, name: Cost,         dtype: decimal, nullable: false, role: attribute, unit: USD,
-        description: 'List unit cost in USD (catalogue value; the sale row''s `unit_cost` is the same figure converted to the sale''s native currency).',
+        description: 'The product''s current list unit cost in USD. A sale''s unit_cost is the cost when it was sold, in that sale''s currency, and usually differs from this figure converted: for anything sold, use the sale''s unit_cost or the cogs_usd metric.',
         lineage: { sourceTable: product, sourceColumn: Cost }, schemaVersion: 1 }
     - { id: product.price,         entityId: product, name: Price,        dtype: decimal, nullable: false, role: attribute, unit: USD,
-        description: 'List unit price in USD.',
+        description: 'The product''s current list unit price in USD. A sale''s unit_price is the list price when it was sold, in that sale''s currency, and usually differs from this figure converted: for anything sold, use the sale''s prices or the revenue_usd metric.',
         lineage: { sourceTable: product, sourceColumn: Price }, schemaVersion: 1 }
     - { id: product.category_key,  entityId: product, name: CategoryKey,  dtype: int,     nullable: false, role: attribute,
         description: 'The category''s number, 1 to 8. product.category_name is its name: group and filter by the name.',
         lineage: { sourceTable: product, sourceColumn: CategoryKey }, schemaVersion: 1 }
     - { id: product.category_name, entityId: product, name: CategoryName, dtype: string,  nullable: false, role: attribute,
-        description: 'Top-level product category. 8 categories total (Audio, Cameras, Computers, ...).',
+        description: 'Top-level product category, one of 8: Audio; Cameras and camcorders; Cell phones; Computers; Games and Toys; Home Appliances; Music, Movies and Audio Books; TV and Video.',
         synonyms: [department],
         lineage: { sourceTable: product, sourceColumn: CategoryName }, schemaVersion: 1 }
     - { id: product.subcategory_key,  entityId: product, name: SubCategoryKey,  dtype: int,    nullable: false, role: attribute,
@@ -383,8 +385,8 @@ ontology:
     - { id: store.close_date,     entityId: store, name: CloseDate,     dtype: date,    nullable: true,  role: attribute,
         description: 'NULL means the store is still open. A non-NULL CloseDate means the store closed on that date.',
         lineage: { sourceTable: store, sourceColumn: CloseDate }, schemaVersion: 1 }
-    - { id: store.status,         entityId: store, name: Status,        dtype: string,  nullable: false, role: attribute,
-        description: 'Operational status. Filter `status != ''Closed''` for "current stores only" reports.',
+    - { id: store.status,         entityId: store, name: Status,        dtype: string,  nullable: true,  role: attribute,
+        description: 'Why a store row stopped trading: ''Closed'' (8 stores) or ''Restructured'' (7, each reopened under a new StoreKey with the same code). NULL for every other store, the Online store included, though StoreKey 630 closed in 2019 without a status. For current stores test CloseDate IS NULL, never Status != ''Closed'', which drops every NULL.',
         lineage: { sourceTable: store, sourceColumn: Status }, schemaVersion: 1 }
     - { id: store.square_meters,  entityId: store, name: SquareMeters,  dtype: int,     nullable: true,  role: attribute, unit: 'square metres',
         description: 'The store''s floor area in square meters (245 to 3,500). NULL for the Online store.',
@@ -620,8 +622,8 @@ algebra:
     - { id: date.year,            name: 'Calendar year',  entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.calendar_quarter, name: 'Calendar quarter', entityId: date,  propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   sortExpr: 'date.month_number', schemaVersion: 1 }
-    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   sortExpr: 'ISODOW(date.date)', schemaVersion: 1 }
+    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
+    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
     - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: int,      chartKind: categorical, schemaVersion: 1 }
     # ── derived grains (F-024) ─────────────────────────────────────────
     # No source columns — the compiler DERIVES these from the base date
@@ -809,9 +811,10 @@ algebra:
       name: gross_margin_pct
       displayName: Gross margin %
       description: |
-        Gross margin percentage / rate of revenue (margin %, markup, GM%). Uses
-        NULLIF on the denominator to avoid divide-by-zero on empty filters.
-        Verified ground truth: 55.9% across the full data window.
+        Gross margin percentage / rate of revenue (margin %, GM%), not markup,
+        which divides the margin by cost instead. Uses NULLIF on the
+        denominator to avoid divide-by-zero on empty filters. Verified ground
+        truth: 55.9% across the full data window.
       language: duckdb-sql
       derivedFrom: [gross_margin_usd, revenue_usd]
       expr: gross_margin_usd / NULLIF(revenue_usd, 0)
@@ -837,9 +840,10 @@ algebra:
       name: units_per_order
       displayName: Units / order
       description: |
-        Average line-item count per order: total units sold divided by
-        distinct orders. Verified ground truth: 7.53 across the full data
-        window.
+        Average units per order: total units sold divided by distinct orders.
+        Verified ground truth: 7.53 across the full data window. Not the
+        number of lines per order (about 2.4): count sale rows per order for
+        that.
       language: duckdb-sql
       derivedFrom: [units_sold, orders_count]
       expr: units_sold / NULLIF(orders_count, 0)
