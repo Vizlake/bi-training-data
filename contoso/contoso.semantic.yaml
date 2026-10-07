@@ -22,11 +22,12 @@ generatedAt: '2026-05-28T00:00:00.000Z'
 source:
   displayName: Contoso
   domain: retail
+  owner: Vizlake
   description: |
     Contoso is a fictional global retailer selling consumer electronics, home
     appliances, and accessories. ~94k orders across 9.6 years (2016-05 →
     2025-12), five trading currencies (USD/EUR/CAD/GBP/AUD), 8 product
-    categories, ~2.5k SKUs, 74 stores in 9 countries plus an Online store.
+    categories, ~2.5k SKUs, 73 stores in 8 countries plus an Online store.
     All transactional amounts are in the order's native currency; the
     `revenue_usd` and `cogs_usd` metrics convert to USD automatically via the
     `ExchangeRate` column on each sale.
@@ -76,8 +77,9 @@ source:
         comparing across regions.
     - term: region / market
       definition: |
-        Geographic grouping. "Region" → `customer.continent` (NA/EU/AS/…) or
-        `store.country_name`; "market" / "country" → `customer.country_full`.
+        Geographic grouping. "Region" → `customer.continent` (Australia,
+        Europe, North America) or `store.country_name`; "market" / "country"
+        → `customer.country_full`.
         Pick the customer geo for buyer-side questions, store geo for
         location-side.
     - term: fiscal year
@@ -107,6 +109,8 @@ ontology:
     - id: sale
       name: Sale
       displayName: Sale
+      grain: 'One row per order line: an order (OrderKey) and its line number (LineNumber).'
+      labelExpr: OrderKey::VARCHAR || '-' || LineNumber::VARCHAR
       description: |
         A single sold line-item — one product, one customer, one store, on
         one day, in one currency. The canonical fact table. Use this for
@@ -118,6 +122,8 @@ ontology:
     - id: order
       name: Order
       displayName: Order
+      grain: 'One row per order (OrderKey).'
+      labelExpr: OrderKey::VARCHAR
       description: |
         An order header — one row per OrderKey. Each order has one customer,
         one store, one order date, and may contain multiple sale rows
@@ -128,6 +134,7 @@ ontology:
     - id: customer
       name: Customer
       displayName: Customer
+      grain: 'One row per customer (CustomerKey).'
       description: |
         A retail buyer with demographics, geography, and an activity period
         (StartDT, EndDT). There is one row per customer, and every order falls
@@ -172,6 +179,7 @@ ontology:
     - id: product
       name: Product
       displayName: Product
+      grain: 'One row per product (ProductKey).'
       description: |
         A SKU with cost, list price, brand, manufacturer, and a four-level
         category hierarchy (Category → SubCategory → Brand → Product).
@@ -181,30 +189,35 @@ ontology:
     - id: store
       name: Store
       displayName: Store
+      grain: 'One row per store (StoreKey), the single Online store included.'
       description: |
-        A physical retail location or the single Online virtual store. Also
-        known as: branch, location, outlet. Filter `status != 'Closed'`
-        when ranking by current performance. ~64 of 74 stores have at
-        least one sale in the data window.
+        A physical retail location or the single Online virtual store. A
+        current store is one with no CloseDate (`CloseDate IS NULL`):
+        `Status` is NULL for open stores, so `Status != 'Closed'` drops every
+        one of them. 64 of 74 stores have at least one sale in the data window.
 
         The Online virtual store has `StoreKey=999999`, `CountryName='Online'`,
         and is tagged `Channel='Online'`; every physical location is
         `Channel='In-store'`. Use the `store.channel` dim to split revenue
-        online-vs-physical — do NOT group by `store.status` (which encodes
-        Open/Closed/Restructured, unrelated to the channel question).
+        online-vs-physical — do NOT group by `store.status` (NULL for open
+        stores, 'Closed' or 'Restructured' otherwise; unrelated to the channel
+        question).
+      synonyms: [branch, location, outlet]
       schemaVersion: 1
     - id: date
       name: Date
       displayName: Date
+      grain: 'One row per calendar day, 2016-01-01 to 2026-12-31.'
       description: |
         Conformed calendar table covering 2016-01-01 → 2026-12-31 (11 years).
-        Always join through this entity for time intelligence — the columns
-        `Year`, `Quarter`, `YearMonth`, `WorkingDay` are the canonical
-        time grains.
+        Always join through this entity for time intelligence: `Date`,
+        `YearMonth`, `YearQuarter` and `Year` are its calendar grains, while
+        `Quarter` and `Month` name a period without its year.
       schemaVersion: 1
     - id: currency_rate
       name: Currency rate
       displayName: Currency rate
+      grain: 'One row per day and currency pair (Date, FromCurrency, ToCurrency).'
       description: |
         Daily FX rates between every transactional currency pair. The
         `revenue_usd` metric reads `sale.ExchangeRate` directly off the
@@ -218,11 +231,13 @@ ontology:
         description: 'Foreign key to the order header. Multiple sale rows share an OrderKey when the order has multiple line items.',
         lineage: { sourceTable: sales, sourceColumn: OrderKey }, schemaVersion: 1 }
     - { id: sale.line_number,   entityId: sale, name: LineNumber,   dtype: int,       nullable: false, role: attribute,
+        description: 'The line''s number in its order, from 0 (0 to 6). 1,448 orders skip a number, so count an order''s lines rather than reading the count from the highest number. With OrderKey it names one sale row.',
         lineage: { sourceTable: sales, sourceColumn: LineNumber }, schemaVersion: 1 }
     - { id: sale.order_date,    entityId: sale, name: OrderDate,    dtype: date,      nullable: false, role: foreign_key,
         description: 'The date the order was placed. Joins to date.Date for time intelligence.',
         lineage: { sourceTable: sales, sourceColumn: OrderDate }, schemaVersion: 1 }
     - { id: sale.delivery_date, entityId: sale, name: DeliveryDate, dtype: date,      nullable: true,  role: attribute,
+        description: 'The day the line was delivered: the order date or later, never earlier. Time series follow the order date; group by this date only when the question asks when lines were delivered.',
         lineage: { sourceTable: sales, sourceColumn: DeliveryDate }, schemaVersion: 1 }
     - { id: sale.customer_key,  entityId: sale, name: CustomerKey,  dtype: int,       nullable: false, role: foreign_key,
         lineage: { sourceTable: sales, sourceColumn: CustomerKey }, schemaVersion: 1 }
@@ -246,7 +261,7 @@ ontology:
         description: 'ISO-4217 currency the order was transacted in. One of USD / EUR / CAD / GBP / AUD.',
         lineage: { sourceTable: sales, sourceColumn: CurrencyCode }, schemaVersion: 1 }
     - { id: sale.exchange_rate, entityId: sale, name: ExchangeRate, dtype: float,     nullable: false, role: attribute, unit: 'native per USD',
-        description: 'Pre-joined FX rate: native-currency units per USD on the order date (e.g. GBP≈0.69, EUR≈0.92, AUD≈1.37; USD=1.0). DIVIDE a native amount by this to convert to USD: USD = native / ExchangeRate.',
+        description: 'Pre-joined FX rate: native-currency units per USD on the order date (medians over the data: GBP 0.79, EUR 0.92, CAD 1.34, AUD 1.49; USD 1.0). DIVIDE a native amount by this to convert to USD: USD = native / ExchangeRate.',
         lineage: { sourceTable: sales, sourceColumn: ExchangeRate }, schemaVersion: 1 }
 
     # order (6 cols)
@@ -259,14 +274,17 @@ ontology:
     - { id: order.order_date,    entityId: order, name: OrderDate,    dtype: date,   nullable: false, role: foreign_key,
         lineage: { sourceTable: orders, sourceColumn: OrderDate }, schemaVersion: 1 }
     - { id: order.delivery_date, entityId: order, name: DeliveryDate, dtype: date,   nullable: true,  role: attribute,
+        description: 'The day the order was delivered: the order date or later, never earlier. The share delivered the same day changes a lot from year to year: count it for the period asked.',
         lineage: { sourceTable: orders, sourceColumn: DeliveryDate }, schemaVersion: 1 }
     - { id: order.currency_code, entityId: order, name: CurrencyCode, dtype: string, nullable: false, role: attribute,
+        description: 'The currency the order was billed in (AUD, CAD, EUR, GBP or USD); every line of the order shares it. Its amounts are in that currency: revenue_usd converts them.',
         lineage: { sourceTable: orders, sourceColumn: CurrencyCode }, schemaVersion: 1 }
 
     # customer (12 cols — drop low-signal Vehicle/Company/Birthday/Title/MiddleInitial/GivenName/Surname/StreetAddress/ZipCode/Lat/Long)
     - { id: customer.customer_key, entityId: customer, name: CustomerKey, dtype: int, nullable: false, role: primary_key,
         lineage: { sourceTable: customer, sourceColumn: CustomerKey }, schemaVersion: 1 }
     - { id: customer.geo_area_key, entityId: customer, name: GeoAreaKey, dtype: int, nullable: true, role: attribute,
+        description: 'An internal code for the customer''s geographic area (608 values) that no table here names: group by customer.country_full, customer.state or customer.city instead.',
         lineage: { sourceTable: customer, sourceColumn: GeoAreaKey }, schemaVersion: 1 }
     - { id: customer.start_dt,     entityId: customer, name: StartDT,    dtype: date, nullable: false, role: attribute,
         description: 'Start of the customer''s activity period, when they could first place an order.',
@@ -275,7 +293,7 @@ ontology:
         description: 'End of the customer''s activity period. An EndDT after the data''s as-of date means the period is still open.',
         lineage: { sourceTable: customer, sourceColumn: EndDT }, schemaVersion: 1 }
     - { id: customer.continent,    entityId: customer, name: Continent,   dtype: string, nullable: false, role: attribute,
-        description: 'One of three: North America, Europe, Asia. Highest level of the customer geography hierarchy.',
+        description: 'One of three: Australia, Europe, North America. Highest level of the customer geography hierarchy.',
         lineage: { sourceTable: customer, sourceColumn: Continent }, schemaVersion: 1 }
     - { id: customer.country,      entityId: customer, name: Country,     dtype: string, nullable: false, role: attribute,
         description: 'Two-letter country code (ISO 3166-1 alpha-2).',
@@ -284,20 +302,26 @@ ontology:
         description: 'Full country name. Prefer this over the two-letter code for display.',
         lineage: { sourceTable: customer, sourceColumn: CountryFull }, schemaVersion: 1 }
     - { id: customer.state,        entityId: customer, name: State,       dtype: string, nullable: true,  role: attribute,
+        description: 'The state, province or region of the customer''s address as the source writes it: a short code in most countries (NJ, QC, QLD), an area name in the United Kingdom. 565 values, and 40 codes recur in several countries (WA is Washington and Western Australia): group it with customer.country_full.',
         lineage: { sourceTable: customer, sourceColumn: State }, schemaVersion: 1 }
     - { id: customer.city,         entityId: customer, name: City,        dtype: string, nullable: true,  role: attribute,
+        description: 'The city of the customer''s address as written (34,581 values). A city name can recur in several states: group it with customer.state.',
         lineage: { sourceTable: customer, sourceColumn: City }, schemaVersion: 1 }
     - { id: customer.age,          entityId: customer, name: Age,         dtype: int,    nullable: true,  role: attribute, unit: years,
+        description: 'The customer''s age in years (19 to 85), one fixed value per customer: not their age at each sale.',
         lineage: { sourceTable: customer, sourceColumn: Age }, schemaVersion: 1 }
     - { id: customer.occupation,   entityId: customer, name: Occupation,  dtype: string, nullable: true,  role: attribute,
+        description: 'The customer''s job title as free text (2,571 values, some misspelled): too varied to group by for most questions.',
         lineage: { sourceTable: customer, sourceColumn: Occupation }, schemaVersion: 1 }
     - { id: customer.gender,       entityId: customer, name: Gender,      dtype: string, nullable: true,  role: attribute,
+        description: 'The customer''s gender, written in lowercase: ''female'' or ''male''.',
         lineage: { sourceTable: customer, sourceColumn: Gender }, schemaVersion: 1 }
 
     # product (14 cols)
     - { id: product.product_key,   entityId: product, name: ProductKey,   dtype: int,     nullable: false, role: primary_key,
         lineage: { sourceTable: product, sourceColumn: ProductKey }, schemaVersion: 1 }
     - { id: product.product_code,  entityId: product, name: ProductCode,  dtype: string,  nullable: false, role: attribute,
+        description: 'The product''s seven-digit code, one per product. Its first four digits are its subcategory key, zero-padded: 0305074 is in subcategory 305. The glossary says how it is written and said.',
         lineage: { sourceTable: product, sourceColumn: ProductCode }, schemaVersion: 1 }
     - { id: product.product_name,  entityId: product, name: ProductName,  dtype: string,  nullable: false, role: attribute,
         description: 'Human-readable product name. Most specific level of the product hierarchy.',
@@ -306,28 +330,35 @@ ontology:
         description: 'Product brand. 11 brands total; Contoso''s own-brand SKUs account for ~28% of the catalogue.',
         lineage: { sourceTable: product, sourceColumn: Brand }, schemaVersion: 1 }
     - { id: product.manufacturer,  entityId: product, name: Manufacturer, dtype: string,  nullable: false, role: attribute,
+        description: 'The company that makes the product (11 values, such as "Proseware, Inc."). Each has one brand, product.brand, under the same name or a shorter one ("Proseware").',
         lineage: { sourceTable: product, sourceColumn: Manufacturer }, schemaVersion: 1 }
     - { id: product.color,         entityId: product, name: Color,        dtype: string,  nullable: true,  role: attribute,
+        description: 'The product''s colour (17 values). Both "Blue" and "blue" occur: compare it case-insensitively.',
         lineage: { sourceTable: product, sourceColumn: Color }, schemaVersion: 1 }
     - { id: product.weight,        entityId: product, name: Weight,       dtype: float,   nullable: true,  role: attribute,
+        description: 'The product''s weight in the unit product.weight_unit names (grams, ounces or pounds): convert to one unit before adding or comparing weights (1 pound = 16 ounces = 453.59 grams). NULL for 284 products.',
         lineage: { sourceTable: product, sourceColumn: Weight }, schemaVersion: 1 }
     - { id: product.weight_unit,   entityId: product, name: WeightUnit,   dtype: string,  nullable: true,  role: attribute,
+        description: 'The unit of product.weight: grams, ounces or pounds. NULL for 222 products, which have no weight either.',
         lineage: { sourceTable: product, sourceColumn: WeightUnit }, schemaVersion: 1 }
     - { id: product.cost,          entityId: product, name: Cost,         dtype: decimal, nullable: false, role: attribute, unit: USD,
-        description: 'List unit cost in USD (catalogue value; the sale row''s `unit_cost` is the same figure converted to the sale''s native currency).',
+        description: 'The product''s current list unit cost in USD. A sale''s unit_cost is the cost when it was sold, in that sale''s currency, and usually differs from this figure converted: for anything sold, use the sale''s unit_cost or the cogs_usd metric.',
         lineage: { sourceTable: product, sourceColumn: Cost }, schemaVersion: 1 }
     - { id: product.price,         entityId: product, name: Price,        dtype: decimal, nullable: false, role: attribute, unit: USD,
-        description: 'List unit price in USD.',
+        description: 'The product''s current list unit price in USD. A sale''s unit_price is the list price when it was sold, in that sale''s currency, and usually differs from this figure converted: for anything sold, use the sale''s prices or the revenue_usd metric.',
         lineage: { sourceTable: product, sourceColumn: Price }, schemaVersion: 1 }
     - { id: product.category_key,  entityId: product, name: CategoryKey,  dtype: int,     nullable: false, role: attribute,
+        description: 'The category''s number, 1 to 8. product.category_name is its name: group and filter by the name.',
         lineage: { sourceTable: product, sourceColumn: CategoryKey }, schemaVersion: 1 }
     - { id: product.category_name, entityId: product, name: CategoryName, dtype: string,  nullable: false, role: attribute,
-        description: 'Top-level product category. 8 categories total (Audio, Cameras, Computers, ...).',
+        description: 'Top-level product category, one of 8: Audio; Cameras and camcorders; Cell phones; Computers; Games and Toys; Home Appliances; Music, Movies and Audio Books; TV and Video.',
         synonyms: [department],
         lineage: { sourceTable: product, sourceColumn: CategoryName }, schemaVersion: 1 }
     - { id: product.subcategory_key,  entityId: product, name: SubCategoryKey,  dtype: int,    nullable: false, role: attribute,
+        description: 'The subcategory''s number: its category''s number times 100, plus a number from 1 to 8 (305 is in category 3). product.subcategory_name is its name.',
         lineage: { sourceTable: product, sourceColumn: SubCategoryKey }, schemaVersion: 1 }
     - { id: product.subcategory_name, entityId: product, name: SubCategoryName, dtype: string, nullable: false, role: attribute,
+        description: 'The product''s subcategory (32 values, such as "Camcorders"), each within one category.',
         lineage: { sourceTable: product, sourceColumn: SubCategoryName }, schemaVersion: 1 }
 
     # store (10 cols)
@@ -337,24 +368,28 @@ ontology:
         description: 'Short numeric store code. The Online virtual store has StoreCode=-1; physical stores have positive numeric codes. Prefer the `store.channel` dim over decoding StoreCode for online-vs-physical splits. A restructured store keeps its code and its name under a new StoreKey, so one code or name can stand for more than one store row (74 stores, 67 codes).',
         lineage: { sourceTable: store, sourceColumn: StoreCode }, schemaVersion: 1 }
     - { id: store.country_code,   entityId: store, name: CountryCode,   dtype: string,  nullable: false, role: attribute,
+        description: 'The two-letter code of the store''s country (US, CA, GB); "--" for the Online store.',
         lineage: { sourceTable: store, sourceColumn: CountryCode }, schemaVersion: 1 }
     - { id: store.country_name,   entityId: store, name: CountryName,   dtype: string,  nullable: false, role: attribute,
-        description: 'Country the store sits in. 9 distinct values including the special "Online" pseudo-country.',
+        description: 'Country the store sits in, 9 values. One is "Online": the virtual store of every online sale, a channel and not a country, so name it as the online channel or leave it out with store.channel. A "which country" question means where customers are (customer.country_full) unless it asks about the stores.',
         lineage: { sourceTable: store, sourceColumn: CountryName }, schemaVersion: 1 }
     - { id: store.channel,        entityId: store, name: Channel,       dtype: string,  nullable: false, role: attribute,
         description: 'Sales-channel flag: "Online" for the virtual store, "In-store" for every physical location. Use this dim for online-vs-physical revenue / units / margin splits.',
         lineage: { sourceTable: store, sourceColumn: Channel }, schemaVersion: 1 }
     - { id: store.state,          entityId: store, name: State,         dtype: string,  nullable: true,  role: attribute,
+        description: 'The state, province or region the store is in (67 values); "Online" for the Online store.',
         lineage: { sourceTable: store, sourceColumn: State }, schemaVersion: 1 }
     - { id: store.open_date,      entityId: store, name: OpenDate,      dtype: date,    nullable: false, role: attribute,
+        description: 'The day the store opened (2005-03-04 to 2019-03-05): an attribute of the store, not a time axis for its sales.',
         lineage: { sourceTable: store, sourceColumn: OpenDate }, schemaVersion: 1 }
     - { id: store.close_date,     entityId: store, name: CloseDate,     dtype: date,    nullable: true,  role: attribute,
         description: 'NULL means the store is still open. A non-NULL CloseDate means the store closed on that date.',
         lineage: { sourceTable: store, sourceColumn: CloseDate }, schemaVersion: 1 }
-    - { id: store.status,         entityId: store, name: Status,        dtype: string,  nullable: false, role: attribute,
-        description: 'Operational status. Filter `status != ''Closed''` for "current stores only" reports.',
+    - { id: store.status,         entityId: store, name: Status,        dtype: string,  nullable: true,  role: attribute,
+        description: 'Why a store row stopped trading: ''Closed'' (8 stores) or ''Restructured'' (7, each reopened under a new StoreKey with the same code). NULL for every other store, the Online store included, though StoreKey 630 closed in 2019 without a status. For current stores test CloseDate IS NULL, never Status != ''Closed'', which drops every NULL.',
         lineage: { sourceTable: store, sourceColumn: Status }, schemaVersion: 1 }
     - { id: store.square_meters,  entityId: store, name: SquareMeters,  dtype: int,     nullable: true,  role: attribute, unit: 'square metres',
+        description: 'The store''s floor area in square meters (245 to 3,500). NULL for the Online store.',
         lineage: { sourceTable: store, sourceColumn: SquareMeters }, schemaVersion: 1 }
     - { id: store.description,    entityId: store, name: Description,   dtype: string,  nullable: true,  role: attribute,
         description: 'The store''s name ("Contoso Store <place>", "Online store"). A restructured store keeps its name under a new StoreKey, so one name can stand for more than one store row.',
@@ -364,26 +399,31 @@ ontology:
     - { id: date.date,            entityId: date, name: Date,         dtype: date,   nullable: false, role: primary_key,
         lineage: { sourceTable: date, sourceColumn: Date }, schemaVersion: 1 }
     - { id: date.date_key,        entityId: date, name: DateKey,      dtype: int,    nullable: false, role: attribute,
+        description: 'The day as a YYYYMMDD number (20160101 to 20261231), one per day. Filter and sort by date.date instead.',
         lineage: { sourceTable: date, sourceColumn: DateKey }, schemaVersion: 1 }
     - { id: date.year,            entityId: date, name: Year,         dtype: int,    nullable: false, role: attribute, unit: year,
         description: 'Calendar year (2016–2026 in the data).',
         lineage: { sourceTable: date, sourceColumn: Year }, schemaVersion: 1 }
     - { id: date.quarter,         entityId: date, name: Quarter,      dtype: string, nullable: false, role: attribute,
+        description: 'The calendar quarter without its year, "Q1" to "Q4": group it with date.year, or use date.calendar_quarter for a quarter of one year.',
         lineage: { sourceTable: date, sourceColumn: Quarter }, schemaVersion: 1 }
     - { id: date.year_quarter,    entityId: date, name: YearQuarter,  dtype: string, nullable: false, role: attribute,
-        description: 'Year-and-quarter as a single label, e.g. "2024 Q3". Use for time-series sorted by quarter.',
+        description: 'Year-and-quarter as a single label, e.g. "Q3-2024". Use for time-series sorted by quarter.',
         lineage: { sourceTable: date, sourceColumn: YearQuarter }, schemaVersion: 1 }
     - { id: date.year_month,      entityId: date, name: YearMonth,    dtype: string, nullable: false, role: attribute,
-        description: 'Year-and-month label, e.g. "2024-Jul". Canonical monthly grain.',
+        description: 'Year-and-month label, e.g. "July 2024". Canonical monthly grain.',
         lineage: { sourceTable: date, sourceColumn: YearMonth }, schemaVersion: 1 }
     - { id: date.month,           entityId: date, name: Month,        dtype: string, nullable: false, role: attribute,
+        description: 'The month name without its year, "January" to "December": sort by date.month_number, and use date.year_month for a month of one year.',
         lineage: { sourceTable: date, sourceColumn: Month }, schemaVersion: 1 }
     - { id: date.month_number,    entityId: date, name: MonthNumber,  dtype: int,    nullable: false, role: attribute,
+        description: 'The month as a number, 1 to 12, to sort month names; it carries no year.',
         lineage: { sourceTable: date, sourceColumn: MonthNumber }, schemaVersion: 1 }
     - { id: date.day_of_week,     entityId: date, name: DayofWeek,    dtype: string, nullable: false, role: attribute,
+        description: 'The weekday name, "Monday" to "Sunday".',
         lineage: { sourceTable: date, sourceColumn: DayofWeek }, schemaVersion: 1 }
-    - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: string, nullable: false, role: attribute,
-        description: 'Y/N flag for non-weekend days. About 69% of rows are working days.',
+    - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: int,    nullable: false, role: attribute,
+        description: '1 for a working day and 0 for any other day (a number, not Y/N). About 69% of days are working days.',
         lineage: { sourceTable: date, sourceColumn: WorkingDay }, schemaVersion: 1 }
 
     # currency_rate (4 cols)
@@ -584,7 +624,7 @@ algebra:
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
     - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
-    - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: string,   schemaVersion: 1 }
+    - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: int,      chartKind: categorical, schemaVersion: 1 }
     # ── derived grains (F-024) ─────────────────────────────────────────
     # No source columns — the compiler DERIVES these from the base date
     # column (date.date) via DuckDB date functions, the way Looker/Cube do.
@@ -771,9 +811,10 @@ algebra:
       name: gross_margin_pct
       displayName: Gross margin %
       description: |
-        Gross margin percentage / rate of revenue (margin %, markup, GM%). Uses
-        NULLIF on the denominator to avoid divide-by-zero on empty filters.
-        Verified ground truth: 55.9% across the full data window.
+        Gross margin percentage / rate of revenue (margin %, GM%), not markup,
+        which divides the margin by cost instead. Uses NULLIF on the
+        denominator to avoid divide-by-zero on empty filters. Verified ground
+        truth: 55.9% across the full data window.
       language: duckdb-sql
       derivedFrom: [gross_margin_usd, revenue_usd]
       expr: gross_margin_usd / NULLIF(revenue_usd, 0)
@@ -799,9 +840,10 @@ algebra:
       name: units_per_order
       displayName: Units / order
       description: |
-        Average line-item count per order: total units sold divided by
-        distinct orders. Verified ground truth: 7.53 across the full data
-        window.
+        Average units per order: total units sold divided by distinct orders.
+        Verified ground truth: 7.53 across the full data window. Not the
+        number of lines per order (about 2.4): count sale rows per order for
+        that.
       language: duckdb-sql
       derivedFrom: [units_sold, orders_count]
       expr: units_sold / NULLIF(orders_count, 0)
