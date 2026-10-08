@@ -85,7 +85,9 @@ source:
     - term: fiscal year
       definition: |
         April to March, named by the calendar year it ends in: FY2024 runs
-        April 2023 to March 2024, and FY2024-Q1 is April to June 2023.
+        April 2023 to March 2024. Its quarters are FY2024-Q1, April to June
+        2023; Q2, July to September 2023; Q3, October to December 2023; and Q4,
+        January to March 2024.
     - term: product code
       definition: |
         Seven digits, stored with no spaces or hyphens (`0303011`), and read
@@ -137,8 +139,10 @@ ontology:
       grain: 'One row per customer (CustomerKey).'
       description: |
         A retail buyer with demographics, geography, and an activity period
-        (StartDT, EndDT). There is one row per customer, and every order falls
-        within the customer's activity period.
+        (StartDT, EndDT), one row per customer. Names repeat (99,200 names for
+        104,990 customers), so group a customer's figures by CustomerKey, not
+        by name, and show the name beside it. Every order falls within the
+        customer's activity period.
 
         Per-record / per-named-customer queries route to query_sql
         (per-customer is intentionally NOT exposed as a query_metric
@@ -160,14 +164,15 @@ ontology:
           Never `SUM(sale.NetPrice)` alone — Contoso transacts in 5 currencies
           (USD/EUR/CAD/GBP/AUD) and the column is per-unit native amount.
 
-        Worked example — top 10 by spend:
+        Worked example — top 10 by spend, one row per customer:
           SELECT
+            c.CustomerKey,
             c.GivenName || ' ' || c.Surname AS name,
             c.CountryFull,
             ROUND(SUM(s.NetPrice * s.Quantity / s.ExchangeRate), 0) AS total_spend_usd
           FROM contoso.sales s
           JOIN contoso.customer c USING (CustomerKey)
-          GROUP BY 1, 2
+          GROUP BY c.CustomerKey, c.GivenName, c.Surname, c.CountryFull
           ORDER BY total_spend_usd DESC
           LIMIT 10
       synonyms: [client, buyer, shopper]
@@ -420,7 +425,7 @@ ontology:
         description: 'The month as a number, 1 to 12, to sort month names; it carries no year.',
         lineage: { sourceTable: date, sourceColumn: MonthNumber }, schemaVersion: 1 }
     - { id: date.day_of_week,     entityId: date, name: DayofWeek,    dtype: string, nullable: false, role: attribute,
-        description: 'The weekday name, "Monday" to "Sunday".',
+        description: 'The weekday name, "Monday" to "Sunday": sort Monday first by the ISO weekday, EXTRACT(isodow FROM date.date).',
         lineage: { sourceTable: date, sourceColumn: DayofWeek }, schemaVersion: 1 }
     - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: int,    nullable: false, role: attribute,
         description: '1 for a working day and 0 for any other day (a number, not Y/N). About 69% of days are working days.',
@@ -622,8 +627,10 @@ algebra:
     - { id: date.year,            name: 'Calendar year',  entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.calendar_quarter, name: 'Calendar quarter', entityId: date,  propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
-    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   schemaVersion: 1 }
-    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   schemaVersion: 1 }
+    # A month name comes back January to December, and a weekday name Monday to Sunday, when a
+    # breakdown ranks nothing; a top N still ranks by its figure.
+    - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   sortExpr: date.month_number, schemaVersion: 1 }
+    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   sortExpr: 'EXTRACT(isodow FROM date.date)', schemaVersion: 1 }
     - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: int,      chartKind: categorical, schemaVersion: 1 }
     # ── derived grains (F-024) ─────────────────────────────────────────
     # No source columns — the compiler DERIVES these from the base date
