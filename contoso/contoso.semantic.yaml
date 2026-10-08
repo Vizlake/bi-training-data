@@ -86,8 +86,8 @@ source:
       definition: |
         April to March, named by the calendar year it ends in: FY2024 runs
         April 2023 to March 2024. Its quarters are FY2024-Q1, April to June
-        2023; Q2, July to September; Q3, October to December; and Q4, January
-        to March 2024.
+        2023; Q2, July to September 2023; Q3, October to December 2023; and Q4,
+        January to March 2024.
     - term: product code
       definition: |
         Seven digits, stored with no spaces or hyphens (`0303011`), and read
@@ -140,9 +140,9 @@ ontology:
       description: |
         A retail buyer with demographics, geography, and an activity period
         (StartDT, EndDT), one row per customer. Names repeat (99,200 names for
-        104,990 customers), so group a customer's figures by CustomerKey and
-        show the name beside it. Every order falls within the customer's
-        activity period.
+        104,990 customers), so group a customer's figures by CustomerKey, not
+        by name, and show the name beside it. Every order falls within the
+        customer's activity period.
 
         Per-record / per-named-customer queries route to query_sql
         (per-customer is intentionally NOT exposed as a query_metric
@@ -400,7 +400,7 @@ ontology:
         description: 'The store''s name ("Contoso Store <place>", "Online store"). A restructured store keeps its name under a new StoreKey, so one name can stand for more than one store row.',
         lineage: { sourceTable: store, sourceColumn: Description }, schemaVersion: 1 }
 
-    # date (11 cols — calendar)
+    # date (10 cols — calendar)
     - { id: date.date,            entityId: date, name: Date,         dtype: date,   nullable: false, role: primary_key,
         lineage: { sourceTable: date, sourceColumn: Date }, schemaVersion: 1 }
     - { id: date.date_key,        entityId: date, name: DateKey,      dtype: int,    nullable: false, role: attribute,
@@ -425,11 +425,8 @@ ontology:
         description: 'The month as a number, 1 to 12, to sort month names; it carries no year.',
         lineage: { sourceTable: date, sourceColumn: MonthNumber }, schemaVersion: 1 }
     - { id: date.day_of_week,     entityId: date, name: DayofWeek,    dtype: string, nullable: false, role: attribute,
-        description: 'The weekday name, "Monday" to "Sunday": sort by date.day_of_week_number.',
+        description: 'The weekday name, "Monday" to "Sunday": sort Monday first by the ISO weekday, EXTRACT(isodow FROM date.date).',
         lineage: { sourceTable: date, sourceColumn: DayofWeek }, schemaVersion: 1 }
-    - { id: date.day_of_week_number, entityId: date, name: DayofWeekNumber, dtype: int, nullable: false, role: attribute,
-        description: 'The weekday as a number, 1 (Sunday) to 7 (Saturday), to sort weekday names.',
-        lineage: { sourceTable: date, sourceColumn: DayofWeekNumber }, schemaVersion: 1 }
     - { id: date.working_day,     entityId: date, name: WorkingDay,   dtype: int,    nullable: false, role: attribute,
         description: '1 for a working day and 0 for any other day (a number, not Y/N). About 69% of days are working days.',
         lineage: { sourceTable: date, sourceColumn: WorkingDay }, schemaVersion: 1 }
@@ -585,7 +582,6 @@ ontology:
         month: Month
         month_number: MonthNumber
         day_of_week: DayofWeek
-        day_of_week_number: DayofWeekNumber
         working_day: WorkingDay
     - id: currency_rate_binding
       entityId: currency_rate
@@ -631,10 +627,10 @@ algebra:
     - { id: date.year,            name: 'Calendar year',  entityId: date,     propertyId: date.year,            dtype: int,      chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.calendar_quarter, name: 'Calendar quarter', entityId: date,  propertyId: date.year_quarter,    dtype: string,   chartKind: temporal, hierarchy: [date.year, date.calendar_quarter, date.year_month, date.date], schemaVersion: 1 }
     - { id: date.year_month,      name: 'Year-month',     entityId: date,     propertyId: date.year_month,      dtype: string,   chartKind: temporal, hierarchy: [date.fiscal_year, date.fiscal_quarter, date.year_month, date.date], schemaVersion: 1 }
-    # A month name and a weekday name come back in calendar order when a breakdown ranks
-    # nothing; a top N still ranks by its figure.
+    # A month name comes back January to December, and a weekday name Monday to Sunday, when a
+    # breakdown ranks nothing; a top N still ranks by its figure.
     - { id: date.month,           name: Month,            entityId: date,     propertyId: date.month,           dtype: string,   sortExpr: date.month_number, schemaVersion: 1 }
-    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   sortExpr: date.day_of_week_number, schemaVersion: 1 }
+    - { id: date.day_of_week,     name: 'Day of week',    entityId: date,     propertyId: date.day_of_week,     dtype: string,   sortExpr: 'EXTRACT(isodow FROM date.date)', schemaVersion: 1 }
     - { id: date.working_day,     name: 'Working day',    entityId: date,     propertyId: date.working_day,     dtype: int,      chartKind: categorical, schemaVersion: 1 }
     # ── derived grains (F-024) ─────────────────────────────────────────
     # No source columns — the compiler DERIVES these from the base date
