@@ -1,0 +1,2 @@
+# The CSVs are kept byte for byte as published (CRLF); no line-ending conversion on any machine.
+contoso/*.csv -text

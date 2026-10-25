@@ -27,7 +27,7 @@ git clone https://github.com/Vizlake/bi-training-data.git
 
 ## Licensing
 
-The Contoso sample data is provided by Microsoft for educational and demonstration use. We redistribute it here unchanged (or lightly cleaned for ease of use) under the same terms. Refer to Microsoft's original distribution for canonical licensing.
+The Contoso sample data is provided by Microsoft for educational and demonstration use. We redistribute it here unchanged under the same terms, with two additions of ours described in each dataset's README (for Contoso: a `Channel` column on `store.csv` and a `budget.csv`). Refer to Microsoft's original distribution for canonical licensing.
 
 The structure, documentation, and any additions in this repository are released under the [MIT License](LICENSE).
 
