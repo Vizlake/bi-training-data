@@ -30,7 +30,7 @@ CATEGORY = {
 # Market targets: online is expected to fall more slowly; stores get a recovery plan (+10%: in-store sales fell 11% in Q4
 # against 21% over the half year), adjusted by each country's own last quarter.
 MARKET = {
-    "Online": -0.05,                         # -24% in Q4: the decline slows
+    "Online": -0.12,                         # -24% in Q4: the decline halves
     "United States": 0.10,                   # the largest store estate: the recovery plan
     "Germany": 0.20,                         # +16% in Q4
     "United Kingdom": 0.12,                  # +4% in Q4

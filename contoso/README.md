@@ -68,7 +68,7 @@ Everything else in this folder is SQLBI's `csv-100k` release byte for byte (chec
 
 - `store.csv` has a `Channel` column: `Online` for the one virtual store (`StoreKey` 999999), `In-store` for the other 73.
   No other value in the file changed.
-- `budget.csv` is a sales budget for the fiscal year April 2025 to March 2026 ($29,346,434, level with FY2025), so reports
+- `budget.csv` is a sales budget for the fiscal year April 2025 to March 2026 ($28,115,036, 4.7% below FY2025), so reports
   can compare actuals with a plan. It is set as a retailer would have set it at the end of March 2025, from FY2025 only:
   each month, store and subcategory of FY2025 in USD (Quantity x NetPrice / ExchangeRate), times a category target and a
   market target, rounded to whole dollars. A store and subcategory with no sales in that month of FY2025 has no row; the
@@ -88,7 +88,7 @@ Everything else in this folder is SQLBI's `csv-100k` release byte for byte (chec
 
   | Market | Target | Evidence |
   |---|---|---|
-  | Online | -5% | -24%: the decline slows |
+  | Online | -12% | -24%: the decline halves |
   | Stores: the recovery plan | +10% | in-store sales fell 11% in the last quarter against 21% over the half year |
   | Italy | +30% | +66% in the last quarter |
   | Germany | +20% | +16% |
