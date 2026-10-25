@@ -16,6 +16,7 @@ Contoso is a fictional global retailer selling consumer electronics, home applia
 | `store.csv` | 74 | Stores with country, state, size, open/close dates, and status. |
 | `date.csv` | 4,018 | Calendar table covering the full data range. |
 | `currencyexchange.csv` | 100,450 | Daily exchange rates by currency pair. |
+| `budget.csv` | 4,244 | FY2026 sales budget (April 2025 to March 2026) by month, store and product category, in USD. A Vizlake addition, made by `make_budget.py`. |
 
 `sales.csv` and (`orders.csv` + `orderrows.csv`) contain the same underlying transactions in different shapes — a denormalized form and a normalized form.
 
@@ -37,13 +38,16 @@ Contoso is a fictional global retailer selling consumer electronics, home applia
 `ProductKey`, `ProductCode`, `ProductName`, `Manufacturer`, `Brand`, `Color`, `WeightUnit`, `Weight`, `Cost`, `Price`, `CategoryKey`, `CategoryName`, `SubCategoryKey`, `SubCategoryName`
 
 ### store
-`StoreKey`, `StoreCode`, `GeoAreaKey`, `CountryCode`, `CountryName`, `State`, `OpenDate`, `CloseDate`, `Description`, `SquareMeters`, `Status`
+`StoreKey`, `StoreCode`, `GeoAreaKey`, `CountryCode`, `CountryName`, `Channel`, `State`, `OpenDate`, `CloseDate`, `Description`, `SquareMeters`, `Status`
 
 ### date
 `Date`, `DateKey`, `Year`, `YearQuarter`, `YearQuarterNumber`, `Quarter`, `YearMonth`, `YearMonthShort`, `YearMonthNumber`, `Month`, `MonthShort`, `MonthNumber`, `DayofWeek`, `DayofWeekShort`, `DayofWeekNumber`, `WorkingDay`, `WorkingDayNumber`
 
 ### currencyexchange
 `Date`, `FromCurrency`, `ToCurrency`, `Exchange`
+
+### budget
+`Date` (first day of the month), `StoreKey`, `CategoryKey` (as in `product.csv`), `AmountUSD`
 
 ## Loading into Power BI
 
@@ -57,6 +61,17 @@ For example:
 ```text
 https://raw.githubusercontent.com/Vizlake/bi-training-data/main/contoso/sales.csv
 ```
+
+## Vizlake additions
+
+Everything else in this folder is SQLBI's `csv-100k` release byte for byte (checked 2026-10-25). Two things are ours:
+
+- `store.csv` has a `Channel` column: `Online` for the one virtual store (`StoreKey` 999999), `In-store` for the other 73.
+  No other value in the file changed.
+- `budget.csv` is a sales budget for the fiscal year April 2025 to March 2026, so reports can compare actuals with a plan.
+  Rule: each month, store and category of FY2025 in USD (Quantity x NetPrice / ExchangeRate), plus 5%, rounded to whole
+  dollars. A store and category with no sales in that month of FY2025 has no row. The online store is budgeted as one
+  store. Rebuild it with `python make_budget.py`.
 
 ## Source & licensing
 
