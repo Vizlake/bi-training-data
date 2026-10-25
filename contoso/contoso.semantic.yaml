@@ -44,6 +44,10 @@ source:
     fiscalYearStart: 04-01
     timezone: UTC
     dataAsOf: '2025-12-31'
+    # A fixed snapshot: its rows end on dataAsOf, so "this year" and "the last
+    # 90 days" count from that date, not from today, wherever the model is
+    # loaded.
+    relativeTo: dataAsOf
     # F-024 — the canonical time axis. The compiler truncates THIS column for
     # `timeGrain` queries (and derived-grain dims reference it), instead of
     # guessing a fact's order-date column. Contoso has a dedicated date entity
@@ -196,8 +200,8 @@ ontology:
       displayName: Store
       grain: 'One row per store (StoreKey), the single Online store included.'
       description: |
-        A physical store or the single Online virtual store, one row per
-        StoreKey. A store has closed when it has a CloseDate (16 of 74 rows):
+        A physical store or the single Online virtual store. A store has
+        closed when it has a CloseDate (16 of 74 rows):
         `store.lifecycle` picks open or closed stores. A restructured store
         reopened under a new StoreKey with its code and name, so `store.key`
         tells its rows apart. `Status` is NULL for open stores, so
