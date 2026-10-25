@@ -16,7 +16,7 @@ Contoso is a fictional global retailer selling consumer electronics, home applia
 | `store.csv` | 74 | Stores with country, state, size, open/close dates, and status. |
 | `date.csv` | 4,018 | Calendar table covering the full data range. |
 | `currencyexchange.csv` | 100,450 | Daily exchange rates by currency pair. |
-| `budget.csv` | 4,244 | FY2026 sales budget (April 2025 to March 2026) by month, store and product category, in USD. A Vizlake addition, made by `make_budget.py`. |
+| `budget.csv` | 8,430 | FY2026 sales budget (April 2025 to March 2026) by month, store and product subcategory, in USD. A Vizlake addition, made by `make_budget.py`. |
 
 `sales.csv` and (`orders.csv` + `orderrows.csv`) contain the same underlying transactions in different shapes — a denormalized form and a normalized form.
 
@@ -47,7 +47,7 @@ Contoso is a fictional global retailer selling consumer electronics, home applia
 `Date`, `FromCurrency`, `ToCurrency`, `Exchange`
 
 ### budget
-`Date` (first day of the month), `StoreKey`, `CategoryKey` (as in `product.csv`), `AmountUSD`
+`Date` (first day of the month), `StoreKey`, `CategoryKey`, `SubCategoryKey` (as in `product.csv`), `AmountUSD`
 
 ## Loading into Power BI
 
@@ -68,10 +68,33 @@ Everything else in this folder is SQLBI's `csv-100k` release byte for byte (chec
 
 - `store.csv` has a `Channel` column: `Online` for the one virtual store (`StoreKey` 999999), `In-store` for the other 73.
   No other value in the file changed.
-- `budget.csv` is a sales budget for the fiscal year April 2025 to March 2026, so reports can compare actuals with a plan.
-  Rule: each month, store and category of FY2025 in USD (Quantity x NetPrice / ExchangeRate), plus 5%, rounded to whole
-  dollars. A store and category with no sales in that month of FY2025 has no row. The online store is budgeted as one
-  store. Rebuild it with `python make_budget.py`.
+- `budget.csv` is a sales budget for the fiscal year April 2025 to March 2026 ($29,346,434, level with FY2025), so reports
+  can compare actuals with a plan. It is set as a retailer would have set it at the end of March 2025, from FY2025 only:
+  each month, store and subcategory of FY2025 in USD (Quantity x NetPrice / ExchangeRate), times a category target and a
+  market target, rounded to whole dollars. A store and subcategory with no sales in that month of FY2025 has no row; the
+  online store is one market. The targets were checked against FY2026's actual sales so that reports show a realistic mix
+  of hits and misses: it is a plan, not a forecast. Rebuild it with `python make_budget.py`.
+
+  | Category | Target | Evidence at March 2025 (last quarter vs a year earlier) |
+  |---|---|---|
+  | Cameras and camcorders | +15% | the one sizeable category growing: +11%, SLR cameras +17% |
+  | Audio | +10% | +2%, headphones +20% |
+  | Games and Toys | +8% | +5% |
+  | Cell phones | 0% | -17%, smartphones steadier |
+  | Computers | -2% | -23%, slowing; the largest category |
+  | Home Appliances | -3% | -20% |
+  | Music, Movies and Audio Books | -5% | -15%, physical media |
+  | TV and Video | -15% | -25%, the steepest fall in every window |
+
+  | Market | Target | Evidence |
+  |---|---|---|
+  | Online | -5% | -24%: the decline slows |
+  | Stores: the recovery plan | +10% | in-store sales fell 11% in the last quarter against 21% over the half year |
+  | Italy | +30% | +66% in the last quarter |
+  | Germany | +20% | +16% |
+  | United Kingdom, Canada | +12% | +4%, +3% |
+  | United States, France | +10% | the plan; France +5% over the half year |
+  | Netherlands, Australia | +8% | -24%, -21% |
 
 ## Source & licensing
 
