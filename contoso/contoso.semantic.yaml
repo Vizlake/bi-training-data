@@ -184,6 +184,10 @@ ontology:
       # (PascalCase), NOT the FirstName/LastName an LLM tends to guess. Surfaced
       # in the always-on digest so raw query_sql SELECTs the right columns first try.
       labelExpr: GivenName || ' ' || Surname
+      # A customer can be looked up by name. Two customers can share one, so
+      # each match shows its city and state.
+      search:
+        detail: [customer.city, customer.state]
       schemaVersion: 1
     - id: product
       name: Product
@@ -215,6 +219,10 @@ ontology:
         stores, 'Closed' or 'Restructured' otherwise; unrelated to the channel
         question).
       synonyms: [branch, location, outlet]
+      # A store can be looked up by name. A restructured store keeps its name
+      # under a new StoreKey, so each match shows its state and status.
+      search:
+        detail: [store.state, store.status]
       schemaVersion: 1
     - id: date
       name: Date
@@ -690,9 +698,11 @@ algebra:
     - { id: customer.gender,       name: Gender,           entityId: customer, propertyId: customer.gender,       dtype: string,   schemaVersion: 1 }
     # ── product hierarchy (category → subcategory → brand → product) ──
     - { id: product.category_name,    name: 'Product category',    entityId: product, propertyId: product.category_name,    dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
-    - { id: product.subcategory_name, name: 'Product subcategory', entityId: product, propertyId: product.subcategory_name, dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
-    - { id: product.brand,            name: Brand,                 entityId: product, propertyId: product.brand,            dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
-    - { id: product.product_name,     name: Product,               entityId: product, propertyId: product.product_name,     dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], schemaVersion: 1 }
+    # A subcategory, a brand and a product can be looked up by name. People
+    # say "AC" for Air Conditioners.
+    - { id: product.subcategory_name, name: 'Product subcategory', entityId: product, propertyId: product.subcategory_name, dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], search: { aliases: { 'Air Conditioners': [AC] } }, schemaVersion: 1 }
+    - { id: product.brand,            name: Brand,                 entityId: product, propertyId: product.brand,            dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], search: true, schemaVersion: 1 }
+    - { id: product.product_name,     name: Product,               entityId: product, propertyId: product.product_name,     dtype: string, hierarchy: [product.category_name, product.subcategory_name, product.brand, product.product_name], search: true, schemaVersion: 1 }
     - { id: product.color,            name: Color,                 entityId: product, propertyId: product.color,            dtype: string, schemaVersion: 1 }
     - { id: product.manufacturer,     name: Manufacturer,          entityId: product, propertyId: product.manufacturer,     dtype: string, schemaVersion: 1 }
     # People name a product by its code ("product code 0303011"), so a metric
